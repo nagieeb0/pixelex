@@ -35,4 +35,6 @@ exclude =
       [integration: true]
   end
 
+{:ok, _} = Pixelex.Test.Endpoint.start_link()
+
 ExUnit.start(exclude: exclude)

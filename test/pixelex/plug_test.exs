@@ -289,6 +289,29 @@ defmodule Pixelex.PlugTest do
       assert [%{name: "px.pageview"}] = stored()
     end
 
+    test "serves the tracker from the host's own origin" do
+      conn =
+        conn(:get, "/pixelex.js")
+        |> Map.put(:host, "shop.test")
+        |> Pixelex.Plug.Ingest.call(Pixelex.Plug.Ingest.init([]))
+
+      assert conn.status == 200
+      assert ["application/javascript" <> _] = get_resp_header(conn, "content-type")
+      assert [etag] = get_resp_header(conn, "etag")
+      assert byte_size(conn.resp_body) < 8_000, "the tracker must stay small"
+      assert conn.resp_body =~ "pixelex"
+
+      # Second request with the etag is a 304.
+      revalidated =
+        conn(:get, "/pixelex.js")
+        |> put_req_header("if-none-match", etag)
+        |> Map.put(:host, "shop.test")
+        |> Pixelex.Plug.Ingest.call(Pixelex.Plug.Ingest.init([]))
+
+      assert revalidated.status == 304
+      assert revalidated.resp_body == ""
+    end
+
     test "an unknown method or path is a 404" do
       conn =
         conn(:put, "/e")

@@ -63,6 +63,8 @@ defmodule Pixelex.MixProject do
       {:phoenix_live_view, "~> 0.20 or ~> 1.0", optional: true},
       {:oban, "~> 2.17", optional: true},
       {:req, "~> 0.5", optional: true},
+      # LiveViewTest needs a DOM parser. Test-only, so nothing reaches consumers.
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]

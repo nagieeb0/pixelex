@@ -51,7 +51,7 @@ if Code.ensure_loaded?(Plug) do
     @spec build(Plug.Conn.t(), keyword()) :: map()
     def build(conn, opts \\ []) do
       %{
-        site_id: opts[:site_id] || site_id(conn),
+        site_id: Pixelex.Config.site_id(conn.host, opts[:site_id]),
         ip: client_ip(conn),
         user_agent: header(conn, "user-agent"),
         url: opts[:url] || Plug.Conn.request_url(conn),
@@ -94,16 +94,6 @@ if Code.ensure_loaded?(Plug) do
     end
 
     # --- internals ----------------------------------------------------------
-
-    defp site_id(conn) do
-      case Application.get_env(:pixelex, :site_id) do
-        id when is_binary(id) -> id
-        fun when is_function(fun, 1) -> fun.(conn)
-        # A multi-tenant app without an explicit resolver: the host header IS
-        # the tenant, which is the shape a custom-domain product already has.
-        _ -> conn.host
-      end
-    end
 
     defp current_user_id(conn) do
       case conn.assigns[:current_user] do

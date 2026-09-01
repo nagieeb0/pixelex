@@ -122,7 +122,7 @@ defmodule Pixelex.Pipeline do
     }
 
     cond do
-      duplicate_pageview?(name, session.visitor_id, parts.pathname) ->
+      duplicate_pageview?(name, session.visitor_id, dedupe_key(context, parts)) ->
         {:dropped, :duplicate_pageview}
 
       true ->
@@ -130,6 +130,27 @@ defmodule Pixelex.Pipeline do
           {:ok, event} -> {:ok, event}
           {:error, reason} -> {:dropped, reason}
         end
+    end
+  end
+
+  # Path AND query, not just the path. A `live_patch` most often changes only
+  # the parameters — `/orders` to `/orders?status=paid` — and keying on the
+  # path alone silently swallows every internal navigation in the app, which is
+  # most of the navigation in a LiveView app.
+  #
+  # The cost is that a cache-busting query parameter defeats deduplication.
+  # That is the right way round: counting a real navigation twice is visible,
+  # never counting it at all is not.
+  defp dedupe_key(context, parts) do
+    case context.url do
+      url when is_binary(url) ->
+        case URI.parse(url) do
+          %URI{query: nil} -> parts.pathname
+          %URI{query: query} -> "#{parts.pathname}?#{query}"
+        end
+
+      _ ->
+        parts.pathname
     end
   end
 

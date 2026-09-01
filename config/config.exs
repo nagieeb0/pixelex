@@ -15,6 +15,15 @@ if config_env() == :test do
 
   config :logger, level: :warning
 
+  config :pixelex, Pixelex.Test.Endpoint,
+    url: [host: "localhost"],
+    secret_key_base: String.duplicate("pixelex-test-secret", 4),
+    live_view: [signing_salt: "pixelex-lv-salt"],
+    render_errors: [formats: [html: Pixelex.Test.Layouts]],
+    server: false
+
+  config :phoenix, :json_library, Jason
+
   # Integration tests only. `mix test` skips them when this database is not
   # reachable, so the unit suite stays runnable with no Postgres at all.
   config :pixelex, Pixelex.Test.Repo,

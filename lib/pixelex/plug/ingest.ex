@@ -38,6 +38,10 @@ if Code.ensure_loaded?(Plug) do
     response to an `<img src>` is not well-trodden ground across browsers,
     which is the same conclusion Matomo reached. 43 bytes.
 
+    ## `GET /px/pixelex.js`
+
+    The tracker itself, from the host's own origin. 1.5KB gzipped.
+
     ## The payload
 
     Short keys, because this is on the wire on every event:
@@ -50,8 +54,18 @@ if Code.ensure_loaded?(Plug) do
     alias Pixelex.{Config, RateLimit, Sites}
     alias Pixelex.Plug.Context
 
-    # 43 bytes: a 1x1 transparent GIF.
+    # 42 bytes: a 1x1 transparent GIF.
     @gif Base.decode64!("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+
+    # Read at compile time so a release has no dependency on priv/ being
+    # readable at runtime, and so the ETag is fixed for the life of the build.
+    @tracker (case File.read(Path.join(:code.priv_dir(:pixelex), "static/pixelex.js")) do
+                {:ok, contents} -> contents
+                {:error, _} -> nil
+              end)
+
+    @tracker_etag if @tracker,
+                    do: ~s("#{Base.encode16(:crypto.hash(:md5, @tracker), case: :lower)}")
 
     @impl true
     def init(opts), do: opts
@@ -75,7 +89,40 @@ if Code.ensure_loaded?(Plug) do
       |> send_resp(200, @gif)
     end
 
+    if @tracker do
+      def call(%{method: "GET", path_info: ["pixelex.js"]} = conn, _opts), do: tracker(conn)
+    end
+
     def call(conn, _opts), do: send_resp(conn, :not_found, "")
+
+    # Served from the host's own origin, which is the whole point: a
+    # first-party path is not on any filter list, and there is no third-party
+    # domain for a browser to block or a privacy extension to flag. It also
+    # means no Subresource Integrity attribute is needed — the script and the
+    # page share an origin — though the hash is published in
+    # priv/static/pixelex.js.sri for anyone serving it from a CDN.
+    if @tracker do
+      defp tracker(conn) do
+        cond do
+          stale?(conn) ->
+            conn
+            |> put_resp_content_type("application/javascript")
+            |> put_resp_header("etag", @tracker_etag)
+            # A day, and it must revalidate after: the tracker changes only on
+            # a release, but a stale one that cannot be replaced is a bug that
+            # outlives its fix.
+            |> put_resp_header("cache-control", "public, max-age=86400, must-revalidate")
+            |> send_resp(200, @tracker)
+
+          true ->
+            conn
+            |> put_resp_header("etag", @tracker_etag)
+            |> send_resp(304, "")
+        end
+      end
+
+      defp stale?(conn), do: get_req_header(conn, "if-none-match") != [@tracker_etag]
+    end
 
     # --- recording ------------------------------------------------------------
 

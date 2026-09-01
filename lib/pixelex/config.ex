@@ -88,6 +88,38 @@ defmodule Pixelex.Config do
   def rate_limit, do: get(:rate_limit, {120, 60_000})
 
   @doc """
+  Which site a request belongs to.
+
+  Resolution order: an explicit override, then `config :pixelex, :site_id`
+  (a string, or a `fun(host)`), then the request host itself — which is the
+  right default for a custom-domain product, where the host *is* the tenant.
+
+  ## Why this is one function and not two
+
+  `Pixelex.Plug` records the dead render and `Pixelex.LiveView` records the
+  connected one, and the second is dropped as a duplicate of the first. That
+  check compares the visitor hash, which is keyed on the site. Resolve the site
+  differently in the two places and the hashes differ, the duplicate check
+  never fires, and **every LiveView page view is counted twice** — with no
+  error anywhere, just numbers that are quietly double.
+
+  So both call this. If you pass `:site_id` to one of them, pass the same value
+  to the other, or set it here once and pass it to neither.
+  """
+  @spec site_id(String.t() | nil, term()) :: String.t() | nil
+  def site_id(host, override \\ nil)
+
+  def site_id(_host, override) when is_binary(override) and override != "", do: override
+
+  def site_id(host, _override) do
+    case get(:site_id) do
+      id when is_binary(id) and id != "" -> id
+      fun when is_function(fun, 1) -> fun.(host)
+      _ -> host
+    end
+  end
+
+  @doc """
   Today, in UTC.
 
   Indirected through config for one reason: salt rotation happens at a day
