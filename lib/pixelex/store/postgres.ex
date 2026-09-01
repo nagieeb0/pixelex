@@ -37,18 +37,37 @@ defmodule Pixelex.Store.Postgres do
 
   @table "pixelex_events"
 
+  # Postgres's wire protocol caps a statement at 65,535 bind parameters, and
+  # every row here binds 22 of them. A single insert_all of the whole buffer
+  # therefore breaks at 2,979 rows — with `max_buffer` defaulting to 50,000,
+  # that is every flush under real load. It does not fail gracefully either:
+  # Postgrex raises and the pooled connection is dropped.
+  #
+  # Found by a load test, not by reading the code. Nothing smaller than a few
+  # thousand events in one batch will ever reveal it.
+  @columns 22
+  @max_rows_per_statement div(65_535, @columns)
+
   @impl true
   def insert_events(events) do
-    rows = Enum.map(events, &to_row/1)
+    written =
+      events
+      |> Enum.chunk_every(@max_rows_per_statement)
+      |> Enum.reduce(0, fn chunk, acc ->
+        rows = Enum.map(chunk, &to_row/1)
+        {n, _} = repo().insert_all(@table, rows, on_conflict: :nothing)
+        acc + n
+      end)
 
-    case repo().insert_all(@table, rows, on_conflict: :nothing) do
-      {n, _} -> {:ok, n}
-    end
+    {:ok, written}
   rescue
     e -> {:error, e}
   catch
     :exit, reason -> {:error, {:exit, reason}}
   end
+
+  @doc "Rows per INSERT, bounded by Postgres's 65,535 bind-parameter limit."
+  def max_rows_per_statement, do: @max_rows_per_statement
 
   @impl true
   def setup, do: {:error, :use_a_migration}

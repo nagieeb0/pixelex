@@ -22,7 +22,12 @@ defmodule Pixelex.DestinationsTest do
 
     Req.Test.stub(PixelexStub, fn conn ->
       {:ok, raw, conn} = Plug.Conn.read_body(conn)
-      send(parent, {:request, %{url: request_url(conn), headers: conn.req_headers, body: decode(raw)}})
+
+      send(
+        parent,
+        {:request, %{url: request_url(conn), headers: conn.req_headers, body: decode(raw)}}
+      )
+
       Req.Test.json(%{conn | status: status}, body)
     end)
   end
@@ -257,8 +262,12 @@ defmodule Pixelex.DestinationsTest do
 
     test "accepts the raw sccid parameter name too" do
       capture()
-      Snapchat.deliver(%{pixel_id: "S", access_token: "T"}, "PURCHASE",
-        conversion(%{user_data: %{sccid: "from-url"}}))
+
+      Snapchat.deliver(
+        %{pixel_id: "S", access_token: "T"},
+        "PURCHASE",
+        conversion(%{user_data: %{sccid: "from-url"}})
+      )
 
       assert_receive {:request, req}
       assert hd(req.body["data"])["user_data"]["sc_click_id"] == "from-url"
@@ -305,8 +314,11 @@ defmodule Pixelex.DestinationsTest do
     test "a forwarded browser client id is preferred over the synthetic one" do
       capture(204)
 
-      GA4.deliver(%{measurement_id: "G", api_secret: "S"}, "purchase",
-        conversion(%{user_data: %{client_id: "GA1.1.123.456"}}))
+      GA4.deliver(
+        %{measurement_id: "G", api_secret: "S"},
+        "purchase",
+        conversion(%{user_data: %{client_id: "GA1.1.123.456"}})
+      )
 
       assert_receive {:request, req}
       assert req.body["client_id"] == "GA1.1.123.456"
@@ -325,6 +337,199 @@ defmodule Pixelex.DestinationsTest do
     end
   end
 
+  describe "Pinterest" do
+    alias Pixelex.Destinations.Pinterest
+
+    test "scopes by ad account, sends hashed keys as arrays and value as a string" do
+      capture(200, %{"num_events_received" => 1, "num_events_processed" => 1})
+
+      Pinterest.deliver(
+        %{ad_account_id: "ACC1", access_token: "pina_tok"},
+        "checkout",
+        conversion(%{
+          user_data: %{email: @email, phone: @phone, epik: "EPIK1", ip: "1.2.3.4"},
+          custom_data: %{currency: "USD", value: 66.95}
+        })
+      )
+
+      assert_receive {:request, req}
+      assert req.url =~ "/v5/ad_accounts/ACC1/events"
+      assert {"authorization", "Bearer pina_tok"} in req.headers
+
+      [event] = req.body["data"]
+      assert event["event_name"] == "checkout"
+      assert event["action_source"] == "web"
+      assert event["user_data"]["em"] == [@email_hash]
+      assert event["user_data"]["ph"] == [@phone_digits], "Pinterest wants digits, no plus"
+      assert event["user_data"]["click_id"] == "EPIK1"
+
+      # A string Pinterest parses to a double, unlike every other platform here.
+      assert event["custom_data"]["value"] == "66.95"
+    end
+
+    test "a 200 carrying a failed event is a failure" do
+      # The trap: Pinterest reports rejections inside a 200 body, in a
+      # per-event array nobody looks at.
+      capture(200, %{
+        "num_events_received" => 1,
+        "num_events_processed" => 0,
+        "events" => [%{"status" => "failed", "error_message" => "Invalid event_name"}]
+      })
+
+      assert {:error, {:pinterest, 200, _}} =
+               Pinterest.deliver(
+                 %{ad_account_id: "A", access_token: "T"},
+                 "purchase",
+                 conversion()
+               )
+    end
+
+    test "a partially processed batch is a failure too" do
+      capture(200, %{"num_events_received" => 2, "num_events_processed" => 1})
+
+      assert {:error, _} =
+               Pinterest.deliver(
+                 %{ad_account_id: "A", access_token: "T"},
+                 "checkout",
+                 conversion()
+               )
+    end
+  end
+
+  describe "Reddit" do
+    alias Pixelex.Destinations.Reddit
+
+    test "wraps events in data, uses milliseconds, and names the type in v3 casing" do
+      capture(200, %{"data" => %{"message" => "ok"}})
+
+      Reddit.deliver(
+        %{pixel_id: "a2_1", access_token: "tok"},
+        "PURCHASE",
+        conversion(%{
+          user_data: %{email: "Al.ice+Apple@Example.Com", phone: @phone, rdt_cid: "RC1"},
+          custom_data: %{currency: "USD", value: 66.95}
+        })
+      )
+
+      assert_receive {:request, req}
+      assert req.url =~ "/api/v3/pixels/a2_1/conversion_events"
+
+      [event] = req.body["data"]["events"]
+      assert event["event_at"] == 1_756_000_000_000, "milliseconds, not seconds"
+      assert event["action_source"] == "WEBSITE"
+      assert event["type"] == %{"tracking_type" => "PURCHASE"}
+      assert event["click_id"] == "RC1"
+
+      # Reddit's own published vector for both spellings of this address.
+      assert event["user"]["email"] ==
+               "ff8d9819fc0e12bf0d24892e45987e249a28dce836a85cad60e28eaaa8c6d976"
+
+      assert event["user"]["phone_number"] == @phone_e164, "E.164 with the plus kept"
+
+      # The dedup key is metadata.conversion_id here, not event_id.
+      assert event["metadata"]["conversion_id"] == "order:42"
+      assert event["metadata"]["value"] == 66.95
+    end
+
+    test "an event with no standard type travels as CUSTOM with a name" do
+      capture(200, %{})
+      Reddit.deliver(%{pixel_id: "p", access_token: "t"}, "InitiateCheckout", conversion())
+
+      assert_receive {:request, req}
+      [event] = req.body["data"]["events"]
+
+      assert event["type"] == %{
+               "tracking_type" => "CUSTOM",
+               "custom_event_name" => "InitiateCheckout"
+             }
+    end
+
+    test "identifies itself, because Reddit rate-limits generic agents by name" do
+      capture(200, %{})
+      Reddit.deliver(%{pixel_id: "p", access_token: "t"}, "LEAD", conversion())
+
+      assert_receive {:request, req}
+      {_name, ua} = List.keyfind(req.headers, "user-agent", 0)
+      assert ua =~ "pixelex"
+    end
+  end
+
+  describe "LinkedIn" do
+    alias Pixelex.Destinations.LinkedIn
+
+    @credentials %{
+      access_token: "tok",
+      conversions: %{"PURCHASE" => "urn:lla:llaPartnerConversion:123"}
+    }
+
+    test "needs a conversion rule before it is configured at all" do
+      refute LinkedIn.configured?(%{access_token: "t", conversions: %{}})
+      refute LinkedIn.configured?(%{access_token: "t"})
+      assert LinkedIn.configured?(@credentials)
+    end
+
+    test "references the rule URN and sends the required version headers" do
+      capture(201, %{})
+
+      LinkedIn.deliver(
+        @credentials,
+        "PURCHASE",
+        conversion(%{
+          user_data: %{email: @email, ip: "1.2.3.4", li_fat_id: "LI1"},
+          custom_data: %{currency: "USD", value: 66.95}
+        })
+      )
+
+      assert_receive {:request, req}
+      assert req.url =~ "/rest/conversionEvents"
+      assert {"x-restli-protocol-version", "2.0.0"} in req.headers
+      assert {"linkedin-version", "202608"} in req.headers
+
+      assert req.body["conversion"] == "urn:lla:llaPartnerConversion:123"
+      assert req.body["conversionHappenedAt"] == 1_756_000_000_000
+      assert req.body["conversionValue"] == %{"currencyCode" => "USD", "amount" => "66.95"}
+
+      ids = req.body["user"]["userIds"]
+      assert %{"idType" => "SHA256_EMAIL", "idValue" => @email_hash} in ids
+      assert %{"idType" => "PLAINTEXT_IP_ADDRESS", "idValue" => "1.2.3.4"} in ids
+      assert %{"idType" => "LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID", "idValue" => "LI1"} in ids
+    end
+
+    test "always sends userIds, even empty" do
+      # Omitting it is a 422: "field is required but not found and has no
+      # default value" — even when the user is identified another way.
+      capture(201, %{})
+      LinkedIn.deliver(@credentials, "PURCHASE", conversion())
+
+      assert_receive {:request, req}
+      assert req.body["user"]["userIds"] == []
+    end
+
+    test "refuses an IPv6 address rather than having it rejected" do
+      capture(201, %{})
+      LinkedIn.deliver(@credentials, "PURCHASE", conversion(%{user_data: %{ip: "2001:db8::1"}}))
+
+      assert_receive {:request, req}
+      assert req.body["user"]["userIds"] == []
+    end
+
+    test "skips an event type with no rule instead of guessing one" do
+      # Attributing a purchase to whichever rule happened to be first would put
+      # revenue in the leads report.
+      capture(201, %{})
+      assert :ok = LinkedIn.deliver(@credentials, "LEAD", conversion())
+      refute_receive {:request, _}, 100
+    end
+
+    test "sends no phone number, because LinkedIn has no field for one" do
+      capture(201, %{})
+      LinkedIn.deliver(@credentials, "PURCHASE", conversion(%{user_data: %{phone: @phone}}))
+
+      assert_receive {:request, req}
+      refute Jason.encode!(req.body) =~ @phone_digits
+    end
+  end
+
   describe "the canonical event table" do
     test "every platform maps every canonical event, or says it cannot" do
       for {event, mapping} <- Destinations.dialects() do
@@ -337,20 +542,47 @@ defmodule Pixelex.DestinationsTest do
       end
     end
 
-    test "the money events exist everywhere" do
+    test "the money event exists on every platform" do
       purchase = Destinations.dialects()[:purchase]
 
-      assert purchase == %{
-               meta: "Purchase",
-               tiktok: "CompletePayment",
-               snapchat: "PURCHASE",
-               ga4: "purchase"
-             }
+      assert Enum.all?(purchase, fn {_platform, name} -> is_binary(name) end),
+             "purchase must reach everywhere: #{inspect(purchase)}"
+    end
+
+    test "Pinterest calls a purchase `checkout`, because it has no `purchase`" do
+      # Sending "purchase" is an explicit rejection from Pinterest, delivered
+      # inside a 200 response body where nobody looks.
+      assert Destinations.dialects()[:purchase][:pinterest] == "checkout"
+    end
+
+    test "Reddit v3 event names are UPPER_SNAKE_CASE, not the v2 CamelCase" do
+      # v2 used PageVisit/AddToCart/SignUp. Copying a pre-October-2025 example
+      # silently creates custom events named after standard ones.
+      dialects = Destinations.dialects()
+
+      assert dialects[:page_view][:reddit] == "PAGE_VISIT"
+      assert dialects[:add_to_cart][:reddit] == "ADD_TO_CART"
+      assert dialects[:complete_registration][:reddit] == "SIGN_UP"
+    end
+
+    test "LinkedIn returns a rule type, not a wire event name" do
+      # LinkedIn has no event name on the wire at all; the type selects which
+      # pre-created conversion rule URN to reference.
+      assert Destinations.dialects()[:page_view][:linkedin] == "KEY_PAGE_VIEW"
     end
 
     test "a platform with no equivalent says nil rather than inventing one" do
       assert Destinations.dialects()[:schedule][:tiktok] == nil
       assert Destinations.dialects()[:contact][:snapchat] == nil
+    end
+
+    test "X is deliberately not shipped" do
+      refute :x in Enum.map(Destinations.modules(), & &1.name())
+
+      # Its endpoint and payload are known, but it needs OAuth 1.0a signing and
+      # X's own API-reference page for the conversions endpoint 404s, so there
+      # is no field-level spec to build against. A guessed endpoint is worse
+      # than an absent one.
     end
 
     test "Snapchat folds lead and registration together, as its taxonomy does" do

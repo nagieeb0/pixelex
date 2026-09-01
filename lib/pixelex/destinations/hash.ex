@@ -39,6 +39,46 @@ defmodule Pixelex.Destinations.Hash do
   @spec phone_e164(String.t() | nil) :: String.t() | nil
   def phone_e164(value), do: once(value, &digest(strip(&1, ~r/[^0-9+]/)))
 
+  @doc """
+  Reddit's email rule, which is nobody else's.
+
+  Lower-case, then **strip dots from the local part** and **drop everything
+  after a `+`**, then hash. Reddit's own published vector:
+
+      alice@example.com
+      Al.ice+Apple@Example.Com
+
+  both produce `ff8d9819fc0e12bf…`. Meta, Pinterest and TikTok do none of this
+  — they hash the address as written, lower-cased. Using the wrong rule
+  produces a valid request, a 200, and no matches, which is the failure this
+  library keeps having to design around.
+  """
+  @spec email_reddit(String.t() | nil) :: String.t() | nil
+  def email_reddit(value) do
+    once(value, fn raw ->
+      raw
+      |> normalise_text()
+      |> case do
+        nil ->
+          nil
+
+        address ->
+          case String.split(address, "@", parts: 2) do
+            [local, domain] ->
+              local
+              |> String.split("+", parts: 2)
+              |> hd()
+              |> String.replace(".", "")
+              |> Kernel.<>("@" <> domain)
+              |> digest()
+
+            _ ->
+              digest(address)
+          end
+      end
+    end)
+  end
+
   @doc "Lower-cased, trimmed, SHA-256 hex. Names, cities, countries, external ids."
   @spec text(String.t() | nil) :: String.t() | nil
   def text(value), do: once(value, &digest(normalise_text(&1)))

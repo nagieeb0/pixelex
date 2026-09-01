@@ -113,6 +113,29 @@ defmodule Pixelex.Store.PostgresTest do
              ] = row
     end
 
+    test "a batch far beyond Postgres's bind-parameter limit still writes" do
+      # 65,535 parameters / 22 columns per row = 2,978 rows per statement.
+      # A single insert_all of the default 50,000-event buffer raises and drops
+      # the pooled connection, so every flush under load would fail, retry, and
+      # be dropped. Only a batch this size shows it.
+      events = for _ <- 1..7_000, do: event()
+
+      assert {:ok, 7_000} = Store.Postgres.insert_events(events)
+      assert count() == 7_000
+    end
+
+    test "the column count the chunk size is derived from is the real one" do
+      %{rows: [[columns]]} =
+        Repo.query!(
+          "SELECT count(*) FROM information_schema.columns WHERE table_name = 'pixelex_events'"
+        )
+
+      # If a column is added without updating @columns, the chunk size stops
+      # being safe and the bug returns at a slightly smaller batch.
+      assert Store.Postgres.max_rows_per_statement() <= div(65_535, columns),
+             "pixelex_events now has #{columns} columns; update @columns in Store.Postgres"
+    end
+
     test "an empty batch is a no-op, not an error" do
       assert {:ok, 0} = Store.insert_events([])
     end

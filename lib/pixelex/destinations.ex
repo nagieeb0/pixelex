@@ -57,8 +57,18 @@ defmodule Pixelex.Destinations do
     Pixelex.Destinations.Meta,
     Pixelex.Destinations.TikTok,
     Pixelex.Destinations.Snapchat,
-    Pixelex.Destinations.GA4
+    Pixelex.Destinations.GA4,
+    Pixelex.Destinations.Pinterest,
+    Pixelex.Destinations.Reddit,
+    Pixelex.Destinations.LinkedIn
   ]
+
+  # X (Twitter) is deliberately absent. Its endpoint and payload are known, but
+  # it requires OAuth 1.0a request signing, its own "API Reference" link for the
+  # conversions endpoint 404s so there is no field-level specification, and the
+  # simpler `X-Pixel-Token` header that would avoid the signer appears only in
+  # third-party write-ups and a forum thread — nowhere in X's documentation.
+  # Shipping a guessed endpoint is worse than shipping six platforms.
 
   @canonical_events ~w(page_view view_content search add_to_cart initiate_checkout
                        add_payment_info purchase lead complete_registration
@@ -69,7 +79,7 @@ defmodule Pixelex.Destinations do
   # that came out of a database a tenant can write to.
   @credential_keys ~w(pixel_id pixel_code access_token api_secret measurement_id
                       test_event_code ad_account_id conversion_id dataset_id
-                      tag_id account_id api_version partner_id)a
+                      tag_id account_id api_version partner_id conversions)a
 
   @doc "The canonical events every destination maps from."
   @spec canonical_events() :: [atom()]
