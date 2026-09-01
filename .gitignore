@@ -30,3 +30,4 @@ pixelex-*.tar
 /priv/plts/
 *.plt
 *.plt.hash
+pixelex-*.tar

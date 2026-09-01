@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.15"
+            otp: "26"
+          - elixir: "1.18"
+            otp: "27"
+          - elixir: "1.20"
+            otp: "28"
+            lint: true
+
+    env:
+      MIX_ENV: test
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+
+      - run: mix deps.get
+
+      # ref_inspector and ua_inspector fetch their databases rather than
+      # bundling them, which is what keeps pixelex clear of referers.yml's
+      # GPL-3.0 — and what makes this step necessary in every build.
+      - run: mix ref_inspector.download --force
+      - run: mix ua_inspector.download --force
+
+      - run: mix compile --warnings-as-errors
+
+      - if: matrix.lint
+        run: mix format --check-formatted
+
+      - run: mix test --include integration --include slow
+
+      - if: matrix.lint
+        uses: actions/cache@v4
+        with:
+          path: _build/test/*.plt
+          key: plt-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+
+      - if: matrix.lint
+        run: mix dialyzer --format short

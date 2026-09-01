@@ -4,9 +4,8 @@ Cookieless, multi-tenant, first-party analytics for Phoenix. Web visitors,
 product events and ad-platform attribution over **one event log**, in your own
 Postgres.
 
-> **Status: 0.1.0-dev.** The engine and capture surfaces work and are tested.
-> The query layer, dashboard, ad-platform destinations and JS tracker are not
-> written yet — see [Roadmap](#roadmap).
+> **Status: 0.1.0-dev**, 265 tests, no compiler warnings, Dialyzer clean.
+> Not yet published to Hex.
 
 ```elixir
 # It counts page views with no JavaScript at all.
@@ -53,6 +52,12 @@ than asking a marketer to hand-build `utm_source` on every creative. UTM
 parameters still win when present; they are an override, not the mechanism.
 
 ## Install
+
+```bash
+mix pixelex.install
+```
+
+generates the migration and prints the wiring. Or by hand:
 
 ```elixir
 def deps do
@@ -215,6 +220,78 @@ HyperLogLog sketch fixes this; Plausible has the identical ceiling.
 | A rate limiter in 25 lines of ETS | The requirement is one number per IP per minute. That is `:ets.update_counter/4`. |
 | `ref_inspector` / `ua_inspector` optional | They depend on `hackney ~> 1.0`, and hackney 1.25.0 carries four unpatched advisories including one HIGH, with fixes only in 4.x. Requiring them would put that in every consumer's `mix hex.audit`. |
 
+## Reading the data
+
+```elixir
+range = Pixelex.Query.range(:last_30_days)
+
+Pixelex.Query.Traffic.summary("shop", range)
+#=> %{pageviews: 4182, sessions: 1204, visitors_daily_sum: 1103,
+#=>   bounce_rate: 0.42, views_per_session: 3.47, events: 5006}
+
+Pixelex.Query.Funnel.run("shop", range, ~w(px.pageview view_doctor book_click booking_completed))
+Pixelex.Query.Retention.cohorts("shop", range, bucket: "week")
+```
+
+Also `top_pages/3`, `sources/3`, `mediums/3`, `campaigns/3`, `countries/3`,
+`browsers/3`, `devices/3`, `events/3`, `timeseries/3`.
+
+The funnel builds one CTE per step, each joined to the previous and taking only
+events at or after it. The single-pass shortcut everyone reaches for —
+`min(occurred_at) FILTER (WHERE name = step_n)` — silently drops anyone who did
+the last step once before the funnel and again properly within it, which is any
+funnel whose final step is reachable from elsewhere.
+
+## Sending conversions back to the ad platforms
+
+```elixir
+Pixelex.Destinations.fire("shop", :purchase,
+  event_id: "order:" <> order.id,          # derive it from the row
+  user_data: %{email: patient.email, phone: patient.phone, click_id: fbclid},
+  custom_data: %{currency: "EGP", value: 1499.0}
+)
+```
+
+Meta, TikTok, Snapchat, GA4, Pinterest, Reddit and LinkedIn. Each no-ops
+without its own credentials. The same `event_id` goes to the browser pixel and
+to every platform, so the pair counts once — and because it is derived from the
+row, a replay cannot double-count, which is what makes retrying safe. Delivery
+runs through Oban with five attempts.
+
+X is not shipped. Its endpoint and payload are known, but it needs OAuth 1.0a
+signing, its own API-reference page for the conversions endpoint 404s so there
+is no field-level spec, and the simpler header auth that would avoid the signer
+appears only in third-party write-ups. A guessed endpoint is worse than seven
+platforms.
+
+Three things the platforms disagree on, each of which fails with a `200` and no
+matches rather than an error — all handled, all tested:
+
+| | |
+|---|---|
+| phone | Meta, Snapchat, Pinterest: digits only. TikTok, Reddit: E.164 with the `+`. LinkedIn: no phone field at all. |
+| hashed match keys | arrays for Meta, Snapchat, Pinterest; plain strings for TikTok; `{idType, idValue}` pairs for LinkedIn. |
+| success | `200` for most; `200` **with** `{"code": 0}` for TikTok; `200` with a per-event status array for Pinterest; `201` for LinkedIn. |
+
+Reddit's email rule is also its own — lowercase, strip dots from the local
+part, drop everything after a `+` — and the implementation is checked against
+Reddit's published test vector.
+
+## The browser tracker
+
+Optional. Page views are already counted server-side.
+
+```html
+<script defer src="/px/pixelex.js" data-site="shop"></script>
+```
+
+1,458 bytes gzipped, served from your own origin. Adds clicks
+(`data-track="book_click"`), SPA and LiveView navigation, screen size, scroll
+depth and engagement time. Guards for localhost, `file://`, headless browsers,
+GPC and a local opt-out. Sends with `keepalive` and falls back to an image;
+fires on `visibilitychange` and `pagehide`, **never** `unload`, which
+disqualifies the page from the back-forward cache.
+
 ## Telemetry
 
 | event | measurements | when |
@@ -226,18 +303,12 @@ HyperLogLog sketch fixes this; Plausible has the identical ceiling.
 
 Watch the drops. Silent loss is the danger, not loss.
 
-## Roadmap
+## Not written yet
 
-- [x] Event schema, ingest buffer, Postgres + ETS stores, partitions, retention
-- [x] Cookieless identity, salt rotation, sessions, midnight handover
-- [x] Auto-attribution: click ids, UTM, referrer classification, first/last touch
-- [x] Consent gate, `Sec-GPC`, bot filtering, rate limiting
-- [x] `Plug`, `Plug.Ingest`, `Plug.Session`, LiveView `on_mount`
-- [ ] Ad-platform destinations (Meta CAPI, TikTok, Snap, GA4, and others)
-- [ ] Query layer: traffic, funnels, retention, cohorts
-- [ ] LiveView dashboard
-- [ ] JS tracker, Igniter installer, Flutter SDK
-- [ ] Release: ExDoc, CI, hex.publish
+A Flutter/mobile SDK — the HTTP ingest endpoint accepts events from anything in
+the meantime. Rollup tables (raw events answer everything inside the retention
+window today). ClickHouse and DuckDB store adapters, which the `Pixelex.Store`
+behaviour has room for.
 
 ## Licence
 

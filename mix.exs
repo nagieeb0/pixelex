@@ -60,7 +60,10 @@ defmodule Pixelex.MixProject do
       {:postgrex, "~> 0.17", optional: true},
       {:plug, "~> 1.14", optional: true},
       {:phoenix, "~> 1.7", optional: true},
-      {:phoenix_live_view, "~> 0.20 or ~> 1.0", optional: true},
+      # 1.0+, not 0.20: the dashboard uses HEEx `{...}` interpolation, which
+      # 0.20 does not parse. Claiming a range the code cannot honour is worse
+      # than requiring the newer one.
+      {:phoenix_live_view, "~> 1.0", optional: true},
       {:oban, "~> 2.17", optional: true},
       {:req, "~> 0.5", optional: true},
       # LiveViewTest needs a DOM parser. Test-only, so nothing reaches consumers.
@@ -89,11 +92,53 @@ defmodule Pixelex.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
-        "Public API": [Pixelex, Pixelex.Event],
-        Identity: [Pixelex.Identity, Pixelex.Identity.Salts, Pixelex.Consent],
-        Attribution: [Pixelex.Attribution, Pixelex.Attribution.ClickIds],
-        Ingest: [Pixelex.Ingest, Pixelex.Ingest.Buffer, Pixelex.Ingest.Pipeline],
-        Storage: [Pixelex.Store, Pixelex.Store.Postgres, Pixelex.Store.ETS]
+        "Public API": [Pixelex, Pixelex.Event, Pixelex.Config],
+        Capture: [
+          Pixelex.Plug,
+          Pixelex.Plug.Ingest,
+          Pixelex.Plug.Session,
+          Pixelex.Plug.Context,
+          Pixelex.Plug.Cookies,
+          Pixelex.LiveView,
+          Pixelex.Router
+        ],
+        Identity: [
+          Pixelex.Identity,
+          Pixelex.Identity.Salts,
+          Pixelex.Sessions,
+          Pixelex.Consent
+        ],
+        Attribution: [Pixelex.Attribution, Pixelex.Attribution.ClickIds, Pixelex.Enrich],
+        Ingest: [Pixelex.Ingest, Pixelex.Pipeline, Pixelex.RateLimit],
+        Storage: [
+          Pixelex.Store,
+          Pixelex.Store.Postgres,
+          Pixelex.Store.ETS,
+          Pixelex.Migration,
+          Pixelex.Partitions,
+          Pixelex.Sites
+        ],
+        Queries: [
+          Pixelex.Query,
+          Pixelex.Query.Traffic,
+          Pixelex.Query.Funnel,
+          Pixelex.Query.Retention
+        ],
+        "Ad platforms": [
+          Pixelex.Destination,
+          Pixelex.Destinations,
+          Pixelex.Destinations.Meta,
+          Pixelex.Destinations.TikTok,
+          Pixelex.Destinations.Snapchat,
+          Pixelex.Destinations.GA4,
+          Pixelex.Destinations.Pinterest,
+          Pixelex.Destinations.Reddit,
+          Pixelex.Destinations.LinkedIn,
+          Pixelex.Destinations.Hash,
+          Pixelex.Destinations.HTTP,
+          Pixelex.Destinations.Worker
+        ],
+        Dashboard: [Pixelex.Dashboard.Live]
       ]
     ]
   end
