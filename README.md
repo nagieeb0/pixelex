@@ -4,8 +4,13 @@ Cookieless, multi-tenant, first-party analytics for Phoenix. Web visitors,
 product events and ad-platform attribution over **one event log**, in your own
 Postgres.
 
-> **Status: 0.1.0-dev**, 265 tests, no compiler warnings, Dialyzer clean.
-> Not yet published to Hex.
+[![Hex.pm](https://img.shields.io/hexpm/v/pixelex.svg)](https://hex.pm/packages/pixelex)
+[![Docs](https://img.shields.io/badge/hex-docs-8e7cc3.svg)](https://hexdocs.pm/pixelex)
+[![CI](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml/badge.svg)](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml)
+[![License](https://img.shields.io/hexpm/l/pixelex.svg)](https://github.com/nagieeb0/pixelex/blob/main/LICENSE)
+
+> **0.1.0** — 265 tests, no compiler warnings, Dialyzer clean. First release;
+> the API may still move before 1.0.
 
 ```elixir
 # It counts page views with no JavaScript at all.
