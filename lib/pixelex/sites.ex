@@ -115,6 +115,24 @@ defmodule Pixelex.Sites do
     e -> {:error, e}
   end
 
+  @doc """
+  Merge `attrs` into a site, leaving every column you did not name alone.
+
+  Read-modify-write rather than a dynamic `UPDATE`. Sites change roughly never
+  and only from an admin screen, so the lost-update window is theoretical,
+  while hand-built partial SQL is a real source of bugs forever.
+  """
+  @spec update(String.t(), map()) :: {:ok, t()} | {:error, term()}
+  def update(site_id, attrs) when is_binary(site_id) and is_map(attrs) do
+    current = get(site_id) || %__MODULE__{id: site_id}
+
+    current
+    |> Map.from_struct()
+    |> Map.merge(Map.new(attrs))
+    |> Map.put(:id, site_id)
+    |> put()
+  end
+
   @doc "Drop a site from the cache, so the next read reloads it."
   @spec refresh(String.t()) :: :ok
   def refresh(site_id) do

@@ -58,6 +58,24 @@ defmodule Pixelex.Destinations.GA4 do
   def name, do: :ga4
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :measurement_id,
+        label: "Measurement ID",
+        placeholder: "G-XXXXXXXXXX",
+        hint: "Admin -> Data streams -> your web stream. Starts with G-."
+      },
+      %{
+        key: :api_secret,
+        label: "API secret",
+        secret: true,
+        hint: "Same screen -> Measurement Protocol API secrets -> Create."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

@@ -53,6 +53,24 @@ defmodule Pixelex.Destinations.Pinterest do
   def name, do: :pinterest
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :ad_account_id,
+        label: "Ad account ID",
+        placeholder: "549755885175",
+        hint: "Ads Manager -> the account switcher. This is the AD ACCOUNT id, not the tag id."
+      },
+      %{
+        key: :access_token,
+        label: "Access token",
+        secret: true,
+        hint: "developers.pinterest.com -> your app -> access token."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

@@ -51,6 +51,31 @@ defmodule Pixelex.Destinations.Meta do
   def name, do: :meta
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :pixel_id,
+        label: "Pixel ID",
+        placeholder: "1234567890123456",
+        hint: "Events Manager -> Data sources. Paste the whole <script> snippet if you have it."
+      },
+      %{
+        key: :access_token,
+        label: "Conversions API token",
+        secret: true,
+        hint: "Events Manager -> Settings -> Conversions API -> Generate access token."
+      },
+      %{
+        key: :test_event_code,
+        label: "Test event code",
+        optional: true,
+        placeholder: "TEST12345",
+        hint: "Optional. Set it and events show in the Test Events tool without counting."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

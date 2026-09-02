@@ -9,7 +9,7 @@ Postgres.
 [![CI](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml/badge.svg)](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/pixelex.svg)](https://github.com/nagieeb0/pixelex/blob/main/LICENSE)
 
-> **0.1.0** — 265 tests, no compiler warnings, Dialyzer clean. First release;
+> **0.2.0** — 323 tests, no compiler warnings, Dialyzer clean. Early;
 > the API may still move before 1.0.
 
 ```elixir
@@ -31,7 +31,8 @@ and has no visitor identity, no sessions and no product analytics. Plausible is
 AGPL-3.0, a standalone application and a ClickHouse dependency — not something
 you can put in `mix.exs`. Nothing on Hex does funnels, retention or cohorts;
 [Plausible CE withholds funnels as a paid feature](https://plausible.io/blog/community-edition).
-Nothing on Hex does ad-platform Conversions API dispatch at all.
+Nothing on Hex does ad-platform Conversions API dispatch at all — and nothing
+lets a tenant set their own pixels up from a screen instead of a deploy.
 
 ## Three ideas
 
@@ -281,6 +282,87 @@ matches rather than an error — all handled, all tested:
 Reddit's email rule is also its own — lowercase, strip dots from the local
 part, drop everything after a `+` — and the implementation is checked against
 Reddit's published test vector.
+
+## Setting up pixels without a deploy
+
+`pixelex_settings` mounts a screen where a tenant pastes the snippet their ad
+platform gave them and presses **Test**.
+
+```elixir
+scope "/admin" do
+  pipe_through [:browser, :require_admin]
+  pixelex_dashboard "/analytics"
+  pixelex_settings  "/analytics/settings"
+end
+```
+
+Three things make it work rather than exist:
+
+**It reads the snippet.** The form does not ask a marketer whether their
+platform calls it a *pixel code*, a *measurement ID* or an *ad account ID*.
+Paste the whole `<script>` block and `Pixelex.Destinations.Detect` finds the id
+inside it and drops it in the right box on the right card. Meta, GA4, TikTok,
+Snapchat, Reddit, LinkedIn and Pinterest snippets are all recognised. Access
+tokens and API secrets have no distinguishing shape, so they are the one thing
+still typed — guessing at them would put a token in the wrong platform's row and
+fail as a `401` three weeks later.
+
+**Test is a real call.** Wrong credentials do not raise; they produce a silent
+gap in reporting nobody notices until conversions look wrong. So the button
+sends a live `page_view` through the platform's own API and prints what came
+back. Meta's `test_event_code` is used when set, so it lands in Test Events
+rather than in the advertiser's real numbers. Setup is not "saved", it is
+verified.
+
+**Tokens go in and do not come out.** A secret is written, never rendered — the
+field shows *set* or *not set*, a blank box on save keeps the stored value, and
+*Disconnect* is how you remove one. Set a key and they are encrypted at rest:
+
+```elixir
+config :pixelex, secret_key: System.get_env("PIXELEX_SECRET_KEY")
+# :crypto.strong_rand_bytes(32) |> Base.encode64()
+```
+
+Turning that on is not a migration. Plaintext values keep reading and become
+ciphertext the next time they are saved. If the key later goes missing, a
+credential decrypts to `nil` and the platform reads as unconfigured rather than
+authenticating with ciphertext forever.
+
+The screen has **no authentication of its own** — scope it behind yours, same as
+the dashboard. Unlike the dashboard it *writes*, so on a path-based multi-tenant
+app pin the site rather than letting `?site=` choose it:
+
+```elixir
+pixelex_settings "/analytics/settings", site_id: "acme"
+# or: on_mount: [{MyAppWeb.Analytics, :owns_site}]
+```
+
+With a custom-domain product the host *is* the tenant and the default is already
+right.
+
+### Or in config, for one site
+
+```elixir
+config :pixelex,
+  sites: %{
+    "shop" => [
+      allowed_events: ~w(book_click booking_completed),
+      destinations: %{
+        "meta" => %{"pixel_id" => "…", "access_token" => System.fetch_env!("META_TOKEN")}
+      }
+    ]
+  }
+```
+
+Config wins over the database, so a site declared here cannot be edited from the
+settings screen — which says so, rather than showing a Save button that does
+nothing.
+
+### Adding your own platform
+
+Implement `Pixelex.Destination` and add
+`c:Pixelex.Destination.fields/0`. The settings screen grows a card for it with
+no further work.
 
 ## The browser tracker
 

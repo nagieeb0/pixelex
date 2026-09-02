@@ -86,6 +86,8 @@ defmodule Mix.Tasks.Pixelex.Install do
         scope "/admin" do
           pipe_through [:browser, :your_admin_auth]
           pixelex_dashboard "/analytics"
+          # Where a tenant pastes their own pixel ids and presses Test.
+          pixelex_settings "/analytics/settings"
         end
 
     4. For LiveView, in the same router:
@@ -132,7 +134,14 @@ defmodule Mix.Tasks.Pixelex.Install do
        #{IO.ANSI.bright()}including in your Dockerfile#{IO.ANSI.reset()}, before
        `mix release`. Those databases are downloaded, not bundled.
 
-    8. Optionally, the browser tracker. Not needed for page views:
+    8. If tenants will paste ad-platform tokens into the settings screen,
+       encrypt them at rest:
+
+        config :pixelex, secret_key: System.get_env("PIXELEX_SECRET_KEY")
+
+       generate one with `:crypto.strong_rand_bytes(32) |> Base.encode64()`.
+
+    9. Optionally, the browser tracker. Not needed for page views:
 
         <script defer src="/px/pixelex.js" data-site="example.com"></script>
 

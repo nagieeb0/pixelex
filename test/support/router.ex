@@ -18,5 +18,6 @@ defmodule Pixelex.Test.Router do
 
     live("/live", Pixelex.Test.PageLive)
     pixelex_dashboard("/analytics", site_id: "dash.test")
+    pixelex_settings("/analytics/settings", site_id: "settings.test")
   end
 end

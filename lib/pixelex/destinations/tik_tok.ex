@@ -49,6 +49,24 @@ defmodule Pixelex.Destinations.TikTok do
   def name, do: :tiktok
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :pixel_code,
+        label: "Pixel code",
+        placeholder: "CXXXXXXXXXXXXXXXXXXX",
+        hint: "Events Manager -> your pixel -> Settings. Pasting the ttq.load snippet works too."
+      },
+      %{
+        key: :access_token,
+        label: "Access token",
+        secret: true,
+        hint: "Events Manager -> your pixel -> Settings -> Generate access token."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

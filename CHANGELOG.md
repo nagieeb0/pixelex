@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.2.0 — 2026-09-02
+
+Ad-platform credentials stop being a deploy.
+
+### Added
+- `Pixelex.Dashboard.Settings` and `pixelex_settings/2` — a screen where a
+  tenant pastes the snippet their ad platform gave them, presses **Test**, and
+  sees a live `page_view` accepted or rejected by the platform's own API. Secrets
+  are written and never rendered back; *Disconnect* removes one.
+- `Pixelex.Destinations.Detect` — pulls the id out of a Meta, GA4, TikTok,
+  Snapchat, Reddit, LinkedIn or Pinterest snippet, in the paste box or in any
+  individual field. Declines to guess at anything without a distinguishing
+  shape rather than filing a token under the wrong platform.
+- `c:Pixelex.Destination.fields/0`, implemented by all seven built-ins. A
+  custom destination that implements it gets a settings card for free.
+- `Pixelex.Secrets` — opt-in AES-256-GCM at rest under
+  `config :pixelex, secret_key:`. Turning it on is not a migration: plaintext
+  keeps reading and becomes ciphertext on the next save. A credential that
+  cannot be decrypted reads as `nil`, so the platform behaves as unconfigured
+  instead of authenticating with ciphertext.
+- `Pixelex.Destinations.put_credentials/3`, `delete_credentials/2`, `test/2`,
+  `fields/1`, `configurable/0`, `module/1`.
+- `Pixelex.Sites.update/2` — partial update, leaving untouched columns alone.
+
+### Changed
+- `Pixelex.Destinations.credentials/1` decrypts secret fields on the way out.
+- The dashboard stylesheet is shared with the settings screen; still no
+  Tailwind, no chart library, no CDN.
+
+### Notes
+- No migration. `pixelex_sites.destinations` already held this.
+- 265 → 323 tests.
+
 ## 0.1.0 — 2026-09-02
 
 First release.

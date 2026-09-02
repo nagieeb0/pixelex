@@ -72,6 +72,24 @@ defmodule Pixelex.Destinations.LinkedIn do
   def name, do: :linkedin
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :access_token,
+        label: "Access token",
+        secret: true,
+        hint: "LinkedIn Marketing API OAuth token with r_ads_conversions."
+      },
+      %{
+        key: :conversions,
+        label: "Conversion rules",
+        type: :map,
+        hint: ~s|One per line, canonical_event=conversion_id, e.g. purchase=12345678|
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

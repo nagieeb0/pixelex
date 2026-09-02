@@ -38,6 +38,18 @@ defmodule Pixelex.Destinations do
 
   ## Configuring a site
 
+  Two ways, and the first is the one most people want:
+
+    * **the dashboard.** `pixelex_settings "/analytics/settings"` mounts
+      `Pixelex.Dashboard.Settings`, where a tenant pastes the snippet their ad
+      platform gave them and clicks Test. See that module.
+    * **`config :pixelex, sites:`**, for a single-tenant app that keeps its
+      credentials with the rest of its secrets. Config wins over the database,
+      so a site defined there cannot be edited from the dashboard — the
+      settings screen says so rather than saving into a void.
+
+  Either way the shape is the same:
+
       %{
         "meta"      => %{"pixel_id" => "…", "access_token" => "…"},
         "tiktok"    => %{"pixel_code" => "…", "access_token" => "…"},
@@ -45,13 +57,15 @@ defmodule Pixelex.Destinations do
         "ga4"       => %{"measurement_id" => "G-…", "api_secret" => "…"}
       }
 
-  in `pixelex_sites.destinations`, or under `config :pixelex, sites:`.
-  Encrypting them at rest is the host's job — pixelex never logs them, but it
-  cannot encrypt a column it does not own.
+  Set `config :pixelex, secret_key:` and everything marked `secret` in a
+  destination's `c:Pixelex.Destination.fields/0` is encrypted at rest by
+  `Pixelex.Secrets`. Without a key it is stored as given, which is the right
+  default only while the credentials come from config in the first place.
   """
   require Logger
 
   alias Pixelex.{Consent, Sites}
+  alias Pixelex.Destinations.Detect
 
   @built_in [
     Pixelex.Destinations.Meta,
@@ -157,13 +171,20 @@ defmodule Pixelex.Destinations do
     end
   end
 
-  @doc "A site's per-platform credentials, keys converted to atoms safely."
+  @doc """
+  A site's per-platform credentials, atomised and decrypted.
+
+  Secret fields stored by `Pixelex.Dashboard.Settings` come back out of
+  `Pixelex.Secrets`; a value that cannot be decrypted is dropped, so the
+  platform reads as unconfigured rather than authenticating with ciphertext.
+  """
   @spec credentials(String.t()) :: %{atom() => map()}
   def credentials(site_id) do
     case Sites.get(site_id) do
       %Sites{destinations: destinations} when is_map(destinations) ->
         Map.new(destinations, fn {platform, creds} ->
-          {safe_atom(platform), atomise(creds)}
+          name = safe_atom(platform)
+          {name, creds |> atomise() |> decrypt_secrets(name)}
         end)
 
       _ ->
@@ -171,7 +192,230 @@ defmodule Pixelex.Destinations do
     end
   end
 
+  @doc """
+  The form a platform needs, from its `c:Pixelex.Destination.fields/0`.
+
+  `[]` for a destination that does not implement the callback: it still
+  delivers, it just cannot be set up from the dashboard.
+  """
+  @spec fields(module() | atom()) :: [Pixelex.Destination.field()]
+  def fields(platform) when is_atom(platform) do
+    case module(platform) do
+      nil -> []
+      module -> if function_exported?(module, :fields, 0), do: module.fields(), else: []
+    end
+  end
+
+  @doc "Every configurable platform, as `{module, fields}`, in `modules/0` order."
+  @spec configurable() :: [{module(), [Pixelex.Destination.field()]}]
+  def configurable do
+    for module <- modules(), fields = fields(module.name()), fields != [], do: {module, fields}
+  end
+
+  @doc "The destination module answering to `platform`, or `nil`."
+  @spec module(module() | atom()) :: module() | nil
+  def module(platform) when is_atom(platform) do
+    Enum.find(modules(), &(&1 == platform or &1.name() == platform))
+  end
+
+  @doc """
+  Save one platform's credentials for a site.
+
+  Everything the settings screen needs, in one call:
+
+    * ids are run through `Pixelex.Destinations.Detect` so a pasted `<script>`
+      snippet works exactly as well as a typed id
+    * a **blank secret keeps the stored one** — the form never receives it, so
+      a blank field means "unchanged", not "erase"
+    * secrets are encrypted through `Pixelex.Secrets` when a key is configured
+    * other platforms on the site are untouched
+
+  Refuses a site defined in `config :pixelex, sites:`, which the database can
+  never override — a silent no-op there would be a save button that lies.
+  """
+  @spec put_credentials(String.t(), atom(), map()) :: {:ok, Sites.t()} | {:error, term()}
+  def put_credentials(site_id, platform, attrs)
+      when is_binary(site_id) and is_atom(platform) and is_map(attrs) do
+    cond do
+      Sites.configured(site_id) ->
+        {:error, :config_defined}
+
+      fields(platform) == [] ->
+        {:error, :unknown_platform}
+
+      true ->
+        key = Atom.to_string(platform)
+        existing = stored(site_id, key)
+        merged = merge_fields(fields(platform), attrs, existing, platform)
+
+        destinations =
+          site_destinations(site_id)
+          |> Map.put(key, merged)
+
+        Sites.update(site_id, %{destinations: destinations})
+    end
+  end
+
+  @doc "Forget one platform's credentials entirely."
+  @spec delete_credentials(String.t(), atom()) :: {:ok, Sites.t()} | {:error, term()}
+  def delete_credentials(site_id, platform) when is_binary(site_id) and is_atom(platform) do
+    if Sites.configured(site_id) do
+      {:error, :config_defined}
+    else
+      destinations = Map.delete(site_destinations(site_id), Atom.to_string(platform))
+      Sites.update(site_id, %{destinations: destinations})
+    end
+  end
+
+  @doc """
+  Send one real `page_view` to one platform and report what it said.
+
+  The point of the settings screen: credentials are only ever wrong in ways
+  that surface as a silent gap in reporting three weeks later. A round trip at
+  save time turns that into a red line under a text box.
+
+  The `event_id` is random here — the one place in this library where that is
+  correct, because a deterministic id would be deduplicated away and the second
+  test would report success without a request leaving the building. Meta's
+  `test_event_code` is used when set, so the event lands in Test Events rather
+  than in the advertiser's real numbers.
+  """
+  @spec test(String.t(), atom()) :: :ok | {:error, term()}
+  def test(site_id, platform) when is_binary(site_id) and is_atom(platform) do
+    with {:module, module} when not is_nil(module) <- {:module, module(platform)},
+         credentials = credentials(site_id)[module.name()],
+         {:configured, true} <-
+           {:configured, is_map(credentials) and module.configured?(credentials)},
+         {:event, name} when is_binary(name) <- {:event, module.event_name(:page_view)} do
+      module.deliver(credentials, name, test_conversion(site_id, credentials))
+    else
+      {:module, nil} -> {:error, :unknown_platform}
+      {:configured, false} -> {:error, :not_configured}
+      {:event, _} -> {:error, :no_page_view_event}
+    end
+  rescue
+    e -> {:error, e}
+  end
+
   # --- internals --------------------------------------------------------------
+
+  defp secret_keys(platform) do
+    for %{key: key} = field <- fields(platform), field[:secret], do: key
+  end
+
+  defp decrypt_secrets(credentials, platform) do
+    Enum.reduce(secret_keys(platform), credentials, fn key, acc ->
+      case Map.fetch(acc, key) do
+        {:ok, value} when is_binary(value) ->
+          case Pixelex.Secrets.decrypt(value) do
+            nil -> Map.delete(acc, key)
+            plain -> Map.put(acc, key, plain)
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp site_destinations(site_id) do
+    case Sites.get(site_id) do
+      %Sites{destinations: destinations} when is_map(destinations) -> destinations
+      _ -> %{}
+    end
+  end
+
+  defp stored(site_id, platform_key) do
+    case site_destinations(site_id)[platform_key] do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  # Blank means "leave it alone" for a secret and "remove it" for anything
+  # else. The asymmetry is the whole reason this is one function: the form
+  # cannot render a secret back, so an empty secret box carries no information
+  # about intent, while an empty pixel-id box carries all of it. Clearing a
+  # secret is `delete_credentials/2`, which is a button that says so.
+  defp merge_fields(fields, attrs, existing, platform) do
+    Enum.reduce(fields, %{}, fn %{key: key} = field, acc ->
+      name = Atom.to_string(key)
+      raw = attrs[name] || attrs[key]
+
+      value =
+        cond do
+          field[:type] == :map -> parse_rules(raw) || existing[name]
+          field[:secret] -> encrypt_or_keep(raw, existing[name])
+          true -> blank_to_nil(Detect.clean(platform, key, raw || ""))
+        end
+
+      if is_nil(value), do: acc, else: Map.put(acc, name, value)
+    end)
+  end
+
+  defp encrypt_or_keep(raw, existing) do
+    case blank_to_nil(raw) do
+      nil -> existing
+      value -> Pixelex.Secrets.encrypt(String.trim(value))
+    end
+  end
+
+  # LinkedIn's conversion rules, as `purchase=12345678` per line. A map field
+  # is rare enough that a textarea beats a nested form, and this is the parser
+  # for it.
+  defp parse_rules(raw) when is_binary(raw) do
+    rules =
+      raw
+      |> String.split(~r/[\n,;]/, trim: true)
+      |> Enum.flat_map(fn line ->
+        case String.split(line, "=", parts: 2) do
+          [event, id] ->
+            event = event |> String.trim() |> String.downcase()
+            id = String.trim(id)
+            if event != "" and id != "", do: [{event, id}], else: []
+
+          _ ->
+            []
+        end
+      end)
+      |> Map.new()
+
+    if rules == %{}, do: nil, else: rules
+  end
+
+  defp parse_rules(_), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_), do: nil
+
+  defp test_conversion(site_id, credentials) do
+    %{
+      event_id:
+        "pixelex-test-" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
+      event_time: System.system_time(:second),
+      event_source_url: test_url(site_id),
+      action_source: "website",
+      user_data: %{},
+      custom_data: %{},
+      test_code: credentials[:test_event_code]
+    }
+  end
+
+  defp test_url(site_id) do
+    host =
+      case Sites.get(site_id) do
+        %Sites{domain: domain} when is_binary(domain) and domain != "" -> domain
+        _ -> site_id
+      end
+
+    "https://" <> String.replace_prefix(host, "https://", "")
+  end
 
   defp enqueue(site_id, event, opts) do
     args = %{

@@ -90,5 +90,38 @@ defmodule Pixelex.Destination do
   """
   @callback click_id_key() :: atom() | nil
 
-  @optional_callbacks click_id_key: 0
+  @typedoc """
+  One credential, described well enough for a settings screen to ask for it.
+
+    * `:key` — the key in `t:credentials/0`
+    * `:label` — what a marketer calls it, not what the API calls it
+    * `:secret` — never rendered back to the browser, and encrypted at rest
+      when `Pixelex.Secrets` has a key
+    * `:hint` — **where in the platform's UI to find it.** The most valuable
+      field here: every one of these lives four clicks deep in a different
+      console.
+    * `:type` — `:string` (default) or `:map` for `event=id` rules
+    * `:optional` — a platform is `configured?/1` without it
+  """
+  @type field :: %{
+          required(:key) => atom(),
+          required(:label) => String.t(),
+          optional(:secret) => boolean(),
+          optional(:hint) => String.t(),
+          optional(:placeholder) => String.t(),
+          optional(:type) => :string | :map,
+          optional(:optional) => boolean()
+        }
+
+  @doc """
+  The credentials this platform needs, in the order a human should be asked.
+
+  Implement it and `Pixelex.Dashboard.Settings` grows a card for the platform
+  with no further work — including a custom destination in a host application.
+  Omit it and the platform still works, it just cannot be configured from the
+  dashboard.
+  """
+  @callback fields() :: [field()]
+
+  @optional_callbacks click_id_key: 0, fields: 0
 end

@@ -368,7 +368,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp percent(rate) when is_float(rate), do: "#{Float.round(rate * 100, 1)}%"
     defp percent(_), do: "—"
 
-    defp styles do
+    @doc false
+    def styles do
       Phoenix.HTML.raw("""
       .px-root{--px-bg:#fff;--px-fg:#111827;--px-muted:#6b7280;--px-line:#e5e7eb;
         --px-accent:#4f46e5;--px-accent-soft:#eef2ff;
@@ -421,6 +422,23 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       .px-root textarea{width:100%;box-sizing:border-box;font:inherit;font-family:ui-monospace,
         monospace;font-size:13px;padding:8px;border:1px solid var(--px-line);border-radius:6px;
         background:transparent;color:inherit;margin-bottom:8px}
+      .px-note{color:var(--px-accent);background:var(--px-accent-soft);border-radius:8px;
+        padding:10px 12px;font-size:13px;margin:4px 0}
+      .px-label{display:block;margin-bottom:14px}
+      .px-label>.px-hint{display:block;margin:2px 0 4px}
+      .px-check{display:block;margin-bottom:14px;color:var(--px-muted)}
+      .px-root input[type=text],.px-root input[type=password],.px-root input[type=number]{
+        width:100%;box-sizing:border-box;font:inherit;font-size:13px;padding:8px;margin-top:4px;
+        border:1px solid var(--px-line);border-radius:6px;background:transparent;color:inherit}
+      .px-root input:disabled,.px-root textarea:disabled{opacity:.55;cursor:not-allowed}
+      .px-pill{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;
+        border:1px solid var(--px-line);color:var(--px-muted);font-size:11px;
+        text-transform:none;letter-spacing:0}
+      .px-pill-on{border-color:var(--px-accent);color:var(--px-accent);
+        background:var(--px-accent-soft)}
+      .px-actions{display:flex;gap:8px;flex-wrap:wrap}
+      .px-button-ghost{background:transparent;color:var(--px-accent);
+        border:1px solid var(--px-line)}
       .px-button{padding:6px 14px;border:0;border-radius:6px;background:var(--px-accent);
         color:#fff;cursor:pointer;font:inherit;font-size:13px}
       """)

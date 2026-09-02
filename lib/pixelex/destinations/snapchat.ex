@@ -45,6 +45,24 @@ defmodule Pixelex.Destinations.Snapchat do
   def name, do: :snapchat
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :pixel_id,
+        label: "Pixel ID",
+        placeholder: "00000000-0000-0000-0000-000000000000",
+        hint: "Ads Manager -> Events Manager. It is a UUID, not a number."
+      },
+      %{
+        key: :access_token,
+        label: "Access token",
+        secret: true,
+        hint: "Snap Business -> Conversions API token."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true

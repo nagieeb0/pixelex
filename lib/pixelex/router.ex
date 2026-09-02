@@ -13,6 +13,7 @@ if Code.ensure_loaded?(Phoenix.Router) do
           scope "/admin" do
             pipe_through [:browser, :require_admin]
             pixelex_dashboard "/analytics"
+            pixelex_settings "/analytics/settings"
           end
         end
 
@@ -84,6 +85,46 @@ if Code.ensure_loaded?(Phoenix.Router) do
             # `as: false` to keep pixelex out of the host's route helpers, and
             # a live action then has nothing to infer a name from.
             live("/", Pixelex.Dashboard.Live, nil, as: :pixelex_dashboard)
+          end
+        end
+      end
+    end
+
+    @doc """
+    Mount the settings screen at `path`.
+
+    Where a tenant pastes their own pixel ids and access tokens and presses
+    Test. Same options as `pixelex_dashboard/2`.
+
+    **It writes.** The dashboard leaking `?site=` shows the wrong numbers; this
+    one edits the wrong tenant's ad credentials. On a path-based multi-tenant
+    app, pin `:site_id` or pass an `:on_mount` that checks the current user
+    against the site they asked for. On a custom-domain product the host is
+    already the tenant and the default is right.
+
+        scope "/admin" do
+          pipe_through [:browser, :require_admin]
+          pixelex_dashboard "/analytics"
+          pixelex_settings "/analytics/settings"
+        end
+    """
+    defmacro pixelex_settings(path \\ "/analytics/settings", opts \\ []) do
+      quote bind_quoted: [path: path, opts: opts] do
+        scope path, alias: false, as: false do
+          live_session_opts =
+            [
+              on_mount: List.wrap(opts[:on_mount]),
+              session: %{"pixelex_site_id" => opts[:site_id]}
+            ]
+            |> then(fn base ->
+              case opts[:root_layout] do
+                nil -> base
+                layout -> Keyword.put(base, :root_layout, layout)
+              end
+            end)
+
+          live_session opts[:live_session_name] || :pixelex_settings, live_session_opts do
+            live("/", Pixelex.Dashboard.Settings, nil, as: :pixelex_settings)
           end
         end
       end

@@ -60,6 +60,24 @@ defmodule Pixelex.Destinations.Reddit do
   def name, do: :reddit
 
   @impl true
+  def fields do
+    [
+      %{
+        key: :pixel_id,
+        label: "Pixel ID",
+        placeholder: "a2_xxxxxxxxxx",
+        hint: "Ads -> Events Manager. Starts with a2_ or t2_."
+      },
+      %{
+        key: :access_token,
+        label: "Access token",
+        secret: true,
+        hint: "Reddit Ads API OAuth token."
+      }
+    ]
+  end
+
+  @impl true
   def event_name(canonical), do: @events[canonical]
 
   @impl true
