@@ -9,7 +9,7 @@ Postgres.
 [![CI](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml/badge.svg)](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/pixelex.svg)](https://github.com/nagieeb0/pixelex/blob/main/LICENSE)
 
-> **0.2.0** — 323 tests, no compiler warnings, Dialyzer clean. Early;
+> **0.3.0** — 356 tests, no compiler warnings, Dialyzer clean. Early;
 > the API may still move before 1.0.
 
 ```elixir
@@ -339,6 +339,50 @@ pixelex_settings "/analytics/settings", site_id: "acme"
 
 With a custom-domain product the host *is* the tenant and the default is already
 right.
+
+### A pixel id alone is enough to start
+
+Hosted store platforms ask a merchant for one thing: the pixel **ID**. That is
+all a *browser* pixel needs — the snippet sits in the page and the browser talks
+to Meta directly.
+
+The Conversions API is the other half, and it cannot work on an id. Meta will
+not accept a call from your server authenticated by a pixel id; that is what the
+access token is for. So the two are not alternatives:
+
+| | id only | id + token |
+|---|---|---|
+| browser pixel | ✅ | ✅ |
+| Conversions API | ❌ impossible | ✅ |
+| survives an ad-blocker | ❌ | ✅ |
+
+pixelex renders the browser half for you, from the ids already in the settings
+screen:
+
+```heex
+<%!-- root layout, once --%>
+<Pixelex.Pixels.tags site_id={@site_id} consent={@consent} />
+```
+
+A merchant pastes a pixel id and their pixel starts firing — no deploy, no
+snippet in a template, no second place to keep the id. Add the access token and
+the same conversions also go server-to-server, sharing one `event_id` so nothing
+counts twice. The card says which state it is in:
+
+```
+meta   [browser pixel active]
+tiktok [browser + server, deduped]
+snapchat [not set up]
+```
+
+Meta, TikTok, Snapchat, GA4, Reddit, Pinterest and LinkedIn. Ids go into a
+`<script>`, so each is validated against `[A-Za-z0-9._-]{1,64}` first and a
+platform whose id fails is skipped. `Pixelex.Consent` is honoured, and
+`nonce={@csp_nonce}` lands on every inline script.
+
+> These are the *advertiser's* pixels and they are blockable — that is why the
+> server leg exists, not an argument against this one. pixelex's own analytics
+> are still measured server-side with nothing for a blocker to block.
 
 ### Or in config, for one site
 

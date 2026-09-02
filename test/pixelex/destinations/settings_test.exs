@@ -10,17 +10,27 @@ defmodule Pixelex.Destinations.SettingsTest do
   @key Base.encode64(:crypto.strong_rand_bytes(32))
 
   setup do
-    Sites.reset()
+    reset_site()
 
     on_exit(fn ->
       Application.delete_env(:pixelex, :sites)
       Application.delete_env(:pixelex, :secret_key)
       Application.delete_env(:pixelex, :req_options)
       :persistent_term.erase({Secrets, :undecryptable})
-      Sites.reset()
+      reset_site()
     end)
 
     :ok
+  end
+
+  # No Ecto sandbox in this suite, so the row outlives the test and
+  # `put_credentials/3` would merge into what the last one left.
+  defp reset_site do
+    Sites.reset()
+    Sites.update(@site, %{destinations: %{}})
+    Sites.reset()
+  rescue
+    _ -> Sites.reset()
   end
 
   describe "fields/1" do

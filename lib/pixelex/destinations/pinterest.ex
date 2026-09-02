@@ -62,6 +62,13 @@ defmodule Pixelex.Destinations.Pinterest do
         hint: "Ads Manager -> the account switcher. This is the AD ACCOUNT id, not the tag id."
       },
       %{
+        key: :tag_id,
+        label: "Tag ID (browser pixel)",
+        optional: true,
+        placeholder: "2612345678901",
+        hint: "Ads -> Conversions -> Pinterest tag. Different from the ad account id above."
+      },
+      %{
         key: :access_token,
         label: "Access token",
         secret: true,

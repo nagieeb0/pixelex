@@ -243,24 +243,41 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end
     end
 
-    defp configured?(module, stored) do
-      case stored[to_string(module.name())] do
-        creds when is_map(creds) ->
-          required =
-            for %{key: k} = f <- module.fields(), f[:optional] != true, do: to_string(k)
+    # Three states, not two, because a pixel id alone is worth something.
+    #
+    #   :full    — every required credential. Browser pixel AND Conversions API,
+    #              deduplicated against each other by `event_id`.
+    #   :browser — the browser pixel id, no access token. `Pixelex.Pixels` will
+    #              render the snippet; the server leg stays silent. This is what
+    #              a Shopify-style platform gives a merchant, and it is what
+    #              pixelex used to give them nothing for.
+    #   :none    — nothing usable.
+    defp status(module, stored) do
+      creds = stored[to_string(module.name())] || %{}
 
-          Enum.all?(required, fn key ->
-            case creds[key] do
-              value when is_binary(value) -> value != ""
-              value when is_map(value) -> map_size(value) > 0
-              _ -> false
-            end
-          end)
-
-        _ ->
-          false
+      cond do
+        not is_map(creds) -> :none
+        complete?(module, creds) -> :full
+        browser_id?(module, creds) -> :browser
+        true -> :none
       end
     end
+
+    defp complete?(module, creds) do
+      required = for %{key: k} = f <- module.fields(), f[:optional] != true, do: to_string(k)
+      required != [] and Enum.all?(required, &present?(creds[&1]))
+    end
+
+    defp browser_id?(module, creds) do
+      case Pixelex.Pixels.id_key(module.name()) do
+        nil -> false
+        key -> present?(creds[to_string(key)])
+      end
+    end
+
+    defp badge(:full), do: "browser + server, deduped"
+    defp badge(:browser), do: "browser pixel active"
+    defp badge(:none), do: "not set up"
 
     # --- render ---------------------------------------------------------------
 
@@ -315,7 +332,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             fields={fields}
             values={Map.get(@values, module.name(), %{})}
             stored={Map.get(@stored, to_string(module.name()), %{})}
-            configured={configured?(module, @stored)}
+            status={status(module, @stored)}
             result={Map.get(@results, module.name())}
             locked={@config_defined?}
           />
@@ -388,7 +405,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     attr(:fields, :list, required: true)
     attr(:values, :map, required: true)
     attr(:stored, :map, required: true)
-    attr(:configured, :boolean, required: true)
+    attr(:status, :atom, required: true)
     attr(:result, :any, default: nil)
     attr(:locked, :boolean, default: false)
 
@@ -397,8 +414,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       <section class="px-card">
         <h2>
           {@module.name()}
-          <span class={["px-pill", @configured && "px-pill-on"]}>
-            {if @configured, do: "connected", else: "not set up"}
+          <span class={["px-pill", @status != :none && "px-pill-on"]}>
+            {badge(@status)}
           </span>
         </h2>
 
@@ -434,7 +451,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           <div class="px-actions">
             <button type="submit" class="px-button" disabled={@locked}>Save</button>
             <button
-              :if={@configured}
+              :if={@status == :full}
               type="button"
               class="px-button px-button-ghost"
               phx-click="test_platform"
@@ -443,7 +460,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
               Test
             </button>
             <button
-              :if={@configured and not @locked}
+              :if={@status != :none and not @locked}
               type="button"
               class="px-button px-button-ghost"
               phx-click="disconnect"
@@ -453,6 +470,12 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             </button>
           </div>
         </form>
+
+        <p :if={@status == :browser} class="px-hint">
+          The browser pixel fires. Add the access token and the same conversions
+          also go server-to-server, which is the half an ad-blocker cannot stop —
+          both legs share one <code>event_id</code>, so nothing is counted twice.
+        </p>
 
         <p :if={@result == :ok} class="px-note">
           Accepted. A test <code>page_view</code> reached {@module.name()}.

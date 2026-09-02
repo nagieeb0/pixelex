@@ -10,15 +10,27 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
   @site "settings.test"
 
   setup do
-    Sites.reset()
+    reset_site()
 
     on_exit(fn ->
       Application.delete_env(:pixelex, :sites)
       Application.delete_env(:pixelex, :req_options)
-      Sites.reset()
+      reset_site()
     end)
 
     %{conn: build_conn()}
+  end
+
+  # The suite runs without an Ecto sandbox on purpose — these tests create and
+  # drop partitions — so the pixelex_sites row survives between tests, and
+  # `put_credentials/3` merges into whatever the last test left behind. Clear
+  # it, or a token saved three tests ago makes this one read as fully set up.
+  defp reset_site do
+    Sites.reset()
+    Sites.update(@site, %{destinations: %{}, allowed_events: [], domain: nil})
+    Sites.reset()
+  rescue
+    _ -> Sites.reset()
   end
 
   defp open(conn), do: live(conn, "/analytics/settings")
@@ -77,7 +89,7 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
       })
 
     assert html =~ "Saved meta."
-    assert html =~ "connected"
+    assert html =~ "browser + server, deduped"
     assert Destinations.credentials(@site)[:meta].pixel_id == "1234567890123456"
   end
 
@@ -202,5 +214,38 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
 
     refute html =~ "EAA-from-a-removed-destination"
     refute html =~ "EAAtoken"
+  end
+
+  # The EasyOrders shape: a merchant has a pixel id and no Conversions API
+  # token. That used to save and then read as "not set up".
+  @tag :integration
+  test "an id with no access token is the browser-pixel state, not nothing", %{conn: conn} do
+    {:ok, _} = Destinations.put_credentials(@site, :meta, %{"pixel_id" => "1234567890123456"})
+
+    {:ok, _view, html} = open(conn)
+
+    assert html =~ "browser pixel active"
+    refute html =~ "not set up</span>"
+    assert html =~ "Add the access token"
+
+    # And the tag actually renders from it.
+    assert Pixelex.Pixels.ids(@site) == %{meta: "1234567890123456"}
+  end
+
+  @tag :integration
+  test "Test is offered only once the server leg can actually work", %{conn: conn} do
+    {:ok, _} = Destinations.put_credentials(@site, :meta, %{"pixel_id" => "1234567890123456"})
+
+    {:ok, view, _html} = open(conn)
+    refute has_element?(view, "button[phx-click=test_platform][phx-value-platform=meta]")
+
+    {:ok, _} =
+      Destinations.put_credentials(@site, :meta, %{
+        "pixel_id" => "1234567890123456",
+        "access_token" => "EAAtoken"
+      })
+
+    {:ok, view, _html} = open(conn)
+    assert has_element?(view, "button[phx-click=test_platform][phx-value-platform=meta]")
   end
 end

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.0 — 2026-09-02
+
+Two conversion-delivery faults, and a pixel id that is finally worth something
+on its own.
+
+### Fixed
+- **Every conversion arrived with an empty `user_data`.** `from_args/1` ran the
+  match keys through the *credential* allowlist, so `email`, `phone`, `ip`,
+  `user_agent` and every click id were dropped between the enqueue and the
+  platform client. Both delivery paths went through it. Meta rejects that
+  payload outright; the rest accept it and match nobody. There is now a
+  `@user_data_keys` allowlist covering every key the seven clients read, and a
+  round-trip test asserting Meta receives them.
+- **`custom_data` is no longer filtered.** Meta, TikTok, Snapchat and Pinterest
+  forward the whole map, so a host's own properties were being collapsed. It is
+  passed through untouched; every named read in the clients already accepted
+  string keys.
+- **Oban was never detected.** `oban?/0` used `Process.whereis(Oban)`, but Oban
+  registers its supervisor through `Oban.Registry`, so the check was `nil` on a
+  healthy Oban: every conversion took the unsupervised `Task` branch with no
+  retry, and every host that had installed Oban was told to install Oban. Add
+  `config :pixelex, oban_name: MyApp.Oban` for a custom instance name.
+
+### Added
+- `Pixelex.Pixels` — renders the tenant's browser pixel from the ids they
+  already saved. `<Pixelex.Pixels.tags site_id={@site_id} consent={@consent} />`
+  in the root layout, and a pasted pixel id starts firing with no deploy. Meta,
+  TikTok, Snapchat, GA4, Reddit, Pinterest and LinkedIn. Ids are validated
+  against `[A-Za-z0-9._-]{1,64}` before they reach a `<script>`; consent is
+  honoured; `nonce` is supported for CSP.
+- The settings card has three states rather than two: **not set up**,
+  **browser pixel active** (an id, no token — what a Shopify-style platform
+  gives a merchant, and what pixelex used to give nothing for), and
+  **browser + server, deduped**.
+- `tag_id` on Pinterest and `partner_id` on LinkedIn, both optional and used
+  only by the browser pixel. Pinterest's server API authenticates with an ad
+  account id and its tag loads with a different number entirely.
+
+### Notes
+- No migration.
+- 324 → 356 tests.
+
 ## 0.2.0 — 2026-09-02
 
 Ad-platform credentials stop being a deploy.

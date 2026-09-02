@@ -1,7 +1,7 @@
 defmodule Pixelex.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/nagieeb0/pixelex"
 
   def project do
@@ -140,6 +140,7 @@ defmodule Pixelex.MixProject do
           Pixelex.Destinations.Detect
         ],
         Dashboard: [Pixelex.Dashboard.Live, Pixelex.Dashboard.Settings],
+        "Browser pixels": [Pixelex.Pixels],
         Security: [Pixelex.Secrets]
       ]
     ]

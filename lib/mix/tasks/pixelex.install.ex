@@ -141,7 +141,15 @@ defmodule Mix.Tasks.Pixelex.Install do
 
        generate one with `:crypto.strong_rand_bytes(32) |> Base.encode64()`.
 
-    9. Optionally, the browser tracker. Not needed for page views:
+    9. The tenant's own ad pixels, from the ids they saved in the settings
+       screen. In your root layout:
+
+        <Pixelex.Pixels.tags site_id={@site_id} consent={@consent} />
+
+       A pixel id alone makes the browser pixel fire; adding the access token
+       adds the server leg, deduplicated against it.
+
+    10. Optionally, pixelex's own browser tracker. Not needed for page views:
 
         <script defer src="/px/pixelex.js" data-site="example.com"></script>
 

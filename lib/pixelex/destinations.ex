@@ -22,12 +22,15 @@ defmodule Pixelex.Destinations do
 
   ## Delivery is durable, or it says so
 
-  With `oban` installed, `fire/3` enqueues and
+  With `oban` running, `fire/3` enqueues and
   `Pixelex.Destinations.Worker` makes the calls with five attempts. Without it,
   delivery falls back to an unsupervised task and logs a warning once — a
   deploy mid-flight then drops the conversion with no record and no retry,
   which is silent under-reporting of exactly the events ad spend optimises
   against.
+
+  Oban is found through `Oban.Registry`, which is where it registers; a custom
+  instance name goes in `config :pixelex, oban_name: MyApp.Oban`.
 
   ## Secrets are not put in the queue
 
@@ -227,6 +230,9 @@ defmodule Pixelex.Destinations do
       snippet works exactly as well as a typed id
     * a **blank secret keeps the stored one** — the form never receives it, so
       a blank field means "unchanged", not "erase"
+    * a **blank anything else clears it** — that box was rendered with its
+      current value, so leaving it empty is a deliberate erase. Passing a
+      partial map therefore drops the keys it omits; pass the whole platform
     * secrets are encrypted through `Pixelex.Secrets` when a key is configured
     * other platforms on the site are untouched
 
@@ -432,7 +438,7 @@ defmodule Pixelex.Destinations do
     if oban?() do
       args
       |> Pixelex.Destinations.Worker.new()
-      |> then(&apply(Oban, :insert, [&1]))
+      |> then(&apply(Oban, :insert, [oban_name(), &1]))
       |> case do
         {:ok, _job} -> :ok
         {:error, reason} -> log_failed(event, reason)
@@ -451,8 +457,13 @@ defmodule Pixelex.Destinations do
       event_time: args["event_time"],
       event_source_url: args["event_source_url"],
       action_source: args["action_source"],
-      user_data: atomise(args["user_data"]),
-      custom_data: atomise_custom(args["custom_data"])
+      user_data: atomise_user(args["user_data"]),
+      # Untouched, string keys and all. Meta, TikTok, Snapchat and Pinterest
+      # forward the whole map to the platform, so an allowlist here would
+      # silently drop a host's own custom properties; and every named read in
+      # the clients is `custom[:currency] || custom["currency"]`, so the string
+      # keys that come back out of the queue are read correctly as they are.
+      custom_data: args["custom_data"] || %{}
     ]
   end
 
@@ -489,6 +500,30 @@ defmodule Pixelex.Destinations do
     end
   end
 
+  # The match keys the destination clients actually read, gathered from all
+  # seven. An allowlist rather than a bare `to_existing_atom`, and separate
+  # from @credential_keys — which is the bug this replaced: `from_args/1` ran
+  # user_data through the CREDENTIAL allowlist, so `email`, `phone`, `ip`,
+  # `user_agent` and every click id were dropped between the enqueue and the
+  # platform client. Both delivery paths went through it, so until 0.3.0 every
+  # conversion pixelex sent arrived with `user_data: %{}` — which Meta rejects
+  # outright and the rest accept while matching nobody.
+  @user_data_keys ~w(email phone first_name last_name city state zip country
+                     company title external_id ip user_agent click_id
+                     fbp fbc fbclid clicked_at_ms ttclid ttp sccid sc_click_id
+                     sc_cookie1 rdt_cid rdt_uuid epik li_fat_id gclid
+                     client_id ga_session_id aaid idfa)a
+
+  defp atomise_user(map) when is_map(map) do
+    for {key, value} <- map,
+        atom = safe_atom(key),
+        atom in @user_data_keys,
+        into: %{},
+        do: {atom, value}
+  end
+
+  defp atomise_user(_), do: %{}
+
   defp atomise(map) when is_map(map) do
     for {k, v} <- map, into: %{} do
       {safe_credential_atom(k), v}
@@ -497,15 +532,6 @@ defmodule Pixelex.Destinations do
   end
 
   defp atomise(_), do: %{}
-
-  # user_data and custom_data carry more keys than credentials do, and they
-  # come from the host rather than a tenant, so the allowlist is wider —
-  # but it is still an allowlist, and still to_existing_atom.
-  defp atomise_custom(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {safe_atom(k), v} end)
-  end
-
-  defp atomise_custom(_), do: %{}
 
   defp safe_credential_atom(key) when is_atom(key), do: key
 
@@ -528,7 +554,27 @@ defmodule Pixelex.Destinations do
 
   defp stringify(_), do: %{}
 
-  defp oban?, do: Code.ensure_loaded?(Oban) and not is_nil(Process.whereis(Oban))
+  @doc """
+  The Oban instance to enqueue into. `config :pixelex, oban_name: MyApp.Oban`.
+
+  Defaults to `Oban`, which is the name `Oban.start_link/1` uses when you do
+  not pass one.
+  """
+  @spec oban_name() :: atom()
+  def oban_name, do: Application.get_env(:pixelex, :oban_name, Oban)
+
+  # Oban registers its supervisor through `Oban.Registry` — see
+  # `Supervisor.start_link(__MODULE__, conf, name: Registry.via(conf.name, ...))`
+  # in Oban itself — never under the local process name. `Process.whereis(Oban)`
+  # is therefore `nil` on a perfectly healthy Oban, which is what this checked
+  # until 0.3.0: every conversion took the fire-and-forget branch, and every
+  # host that had already installed Oban was told to install Oban.
+  defp oban? do
+    Code.ensure_loaded?(Oban) and Code.ensure_loaded?(Oban.Registry) and
+      not is_nil(apply(Oban.Registry, :whereis, [oban_name()]))
+  rescue
+    _ -> false
+  end
 
   defp warn_no_oban do
     unless :persistent_term.get({__MODULE__, :warned}, false) do

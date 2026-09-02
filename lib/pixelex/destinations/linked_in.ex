@@ -85,6 +85,13 @@ defmodule Pixelex.Destinations.LinkedIn do
         label: "Conversion rules",
         type: :map,
         hint: ~s|One per line, canonical_event=conversion_id, e.g. purchase=12345678|
+      },
+      %{
+        key: :partner_id,
+        label: "Partner ID (browser pixel)",
+        optional: true,
+        placeholder: "1234567",
+        hint: "Campaign Manager -> Insight Tag. Only the browser pixel uses it."
       }
     ]
   end
