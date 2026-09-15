@@ -72,9 +72,10 @@ defmodule Pixelex.Sites do
   def allowed_event?(%__MODULE__{allow_any_event: true}, _name), do: true
 
   def allowed_event?(%__MODULE__{allowed_events: allowed}, name) when is_binary(name) do
-    # px.pageview is pixelex's own and always permitted; a host should not have
-    # to allowlist the library's reserved names to count page views.
-    name in allowed or name == Pixelex.Pipeline.pageview_name()
+    # The tracker can only emit this closed set under pixelex's reserved
+    # namespace. A host should not need to copy library-owned event names into
+    # every tenant row, while an invented `px.anything` must still be refused.
+    name in allowed or name in Pixelex.Pipeline.browser_events()
   end
 
   def allowed_event?(_, _), do: false

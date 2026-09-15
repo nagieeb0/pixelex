@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 — 2026-09-15
+
+The browser tracker can now explain what a visitor could do, what they did and
+how far they got, without turning page copy or form values into analytics data.
+
+### Added
+- Automatic discovery of visible links, buttons, submit controls,
+  `role="button"` elements and `summary` controls, including LiveView DOM
+  updates through `MutationObserver`.
+- `px.inventory`, `px.click` and richer `px.engagement` events. Library-owned
+  browser events form a closed built-in allowlist; arbitrary `px.*` names remain
+  rejected.
+- Semantic action inference for booking, WhatsApp, phone, submit, expand,
+  navigation and generic interactions.
+- Optional `data-track-action`, `data-track-label`, `data-track-section` and
+  `data-pixelex-ignore` controls, plus script-level
+  `data-interactions="false"`.
+- `Pixelex.Query.Interactions` and dashboard panels for page inventory,
+  interactions, scroll depth, active time and the latest event timeline.
+
+### Changed
+- Pixel and site settings save after a short debounce. Pasting a recognised
+  platform snippet saves the detected fields immediately; secret fields still
+  remain write-only and a blank secret keeps the stored value.
+
+### Privacy
+- Automatic interaction capture never reads element text, `innerText`,
+  `textContent` or form values. A business label is collected only when the
+  host intentionally sets `data-track-label`.
+- No migration.
+
 ## 0.3.0 — 2026-09-02
 
 Two conversion-delivery faults, and a pixel id that is finally worth something

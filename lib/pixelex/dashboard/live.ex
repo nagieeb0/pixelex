@@ -26,7 +26,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     use Phoenix.LiveView
 
     alias Pixelex.Query
-    alias Pixelex.Query.{Funnel, Traffic}
+    alias Pixelex.Query.{Funnel, Interactions, Traffic}
 
     @ranges [
       {"24h", :today, "Last 24 hours"},
@@ -100,7 +100,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         countries: Traffic.countries(site, range, limit: 10),
         devices: Traffic.devices(site, range, limit: 10),
         browsers: Traffic.browsers(site, range, limit: 10),
-        events: Traffic.events(site, range, limit: 10)
+        events: Traffic.events(site, range, limit: 10),
+        inventory: Interactions.inventory(site, range, limit: 20),
+        clicks: Interactions.clicks(site, range, limit: 20),
+        engagement: Interactions.engagement(site, range),
+        timeline: Interactions.timeline(site, range, limit: 30)
       )
     rescue
       e ->
@@ -115,7 +119,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           countries: [],
           devices: [],
           browsers: [],
-          events: []
+          events: [],
+          inventory: [],
+          clicks: [],
+          engagement: nil,
+          timeline: []
         )
     end
 
@@ -185,6 +193,18 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           <.chart series={@series} />
         </section>
 
+        <section :if={@engagement} class="px-tiles">
+          <.tile label="Average scroll depth" value={percent_number(@engagement.average_depth)} />
+          <.tile label="Deepest scroll" value={percent_number(@engagement.maximum_depth)} />
+          <.tile label="Engaged time" value={duration(@engagement.engaged_ms)} />
+          <.tile label="Engaged sessions" value={number(@engagement.sessions)} />
+        </section>
+
+        <div class="px-grid">
+          <.inventory_table rows={@inventory} />
+          <.click_table rows={@clicks} />
+        </div>
+
         <div class="px-grid">
           <.table title="Pages" rows={@pages} />
           <.table title="Sources" rows={@sources} />
@@ -219,7 +239,67 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
           <.funnel_result :if={@funnel && Map.has_key?(@funnel, :steps)} funnel={@funnel} />
         </section>
+
+        <.timeline rows={@timeline} />
       </div>
+      """
+    end
+
+    attr(:rows, :list, required: true)
+
+    defp inventory_table(assigns) do
+      ~H"""
+      <section class="px-card">
+        <h2>Page inventory</h2>
+        <p :if={@rows == []} class="px-empty">No browser inventory yet.</p>
+        <table :if={@rows != []} class="px-table">
+          <thead><tr><th>Page</th><th class="px-num">Buttons</th><th class="px-num">Links</th></tr></thead>
+          <tbody>
+            <tr :for={row <- @rows}>
+              <td>{row.path || "/"}</td><td class="px-num">{row.buttons}</td><td class="px-num">{row.links}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      """
+    end
+
+    attr(:rows, :list, required: true)
+
+    defp click_table(assigns) do
+      ~H"""
+      <section class="px-card">
+        <h2>Interactions</h2>
+        <p :if={@rows == []} class="px-empty">No interactions yet.</p>
+        <table :if={@rows != []} class="px-table">
+          <thead><tr><th>Action</th><th class="px-num">Clicks</th><th class="px-num">People</th></tr></thead>
+          <tbody>
+            <tr :for={row <- @rows}>
+              <td>{row.label || row.action}</td><td class="px-num">{row.events}</td><td class="px-num">{row.visitors}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      """
+    end
+
+    attr(:rows, :list, required: true)
+
+    defp timeline(assigns) do
+      ~H"""
+      <section class="px-card">
+        <h2>Latest events</h2>
+        <p :if={@rows == []} class="px-empty">Nothing yet.</p>
+        <table :if={@rows != []} class="px-table">
+          <thead><tr><th>When</th><th>Event</th><th>Page</th></tr></thead>
+          <tbody>
+            <tr :for={row <- @rows}>
+              <td>{Calendar.strftime(row.at, "%Y-%m-%d %H:%M:%S")}</td>
+              <td>{row.name}</td><td>{row.path || "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
       """
     end
 
@@ -367,6 +447,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp percent(rate) when is_float(rate), do: "#{Float.round(rate * 100, 1)}%"
     defp percent(_), do: "—"
+
+    defp percent_number(value) when is_number(value), do: "#{value}%"
+    defp percent_number(_), do: "—"
+
+    defp duration(ms) when is_integer(ms) and ms >= 0 do
+      seconds = div(ms, 1_000)
+      if seconds < 60, do: "#{seconds}s", else: "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+    end
+
+    defp duration(_), do: "—"
 
     @doc false
     def styles do

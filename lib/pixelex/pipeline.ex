@@ -35,6 +35,7 @@ defmodule Pixelex.Pipeline do
   alias Pixelex.{Attribution, Config, Consent, Enrich, Event, Ingest, Sessions}
 
   @pageview "px.pageview"
+  @browser_events ~w(px.pageview px.inventory px.click px.engagement)
 
   @browser_renders [:client, :dead, :connected]
 
@@ -43,6 +44,9 @@ defmodule Pixelex.Pipeline do
 
   @doc "The reserved name pixelex uses for a page view."
   def pageview_name, do: @pageview
+
+  @doc "The fixed events emitted by pixelex's own browser tracker."
+  def browser_events, do: @browser_events
 
   @doc """
   Run one event through the pipeline.

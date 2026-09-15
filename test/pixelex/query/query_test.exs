@@ -5,7 +5,7 @@ defmodule Pixelex.QueryTest do
 
   alias Pixelex.{Event, Store}
   alias Pixelex.Query
-  alias Pixelex.Query.{Funnel, Retention, Traffic}
+  alias Pixelex.Query.{Funnel, Interactions, Retention, Traffic}
   alias Pixelex.Test.Repo
 
   @site "query-test"
@@ -203,6 +203,96 @@ defmodule Pixelex.QueryTest do
 
     test "nothing outside the window is counted" do
       assert Traffic.summary(@site, Query.range(at(1_000), at(2_000))).pageviews == 0
+    end
+  end
+
+  describe "Interactions" do
+    setup do
+      write([
+        %{
+          name: "px.inventory",
+          timestamp: at(0),
+          session_id: "s1",
+          pathname: "/doctor",
+          props: %{
+            "interactive" => 3,
+            "buttons" => 2,
+            "links" => 1,
+            "actions" => "booking,contact_whatsapp"
+          }
+        },
+        %{
+          name: "px.inventory",
+          timestamp: at(1),
+          session_id: "s1",
+          pathname: "/doctor",
+          props: %{
+            "interactive" => 4,
+            "buttons" => 3,
+            "links" => 1,
+            "actions" => "booking,contact_whatsapp"
+          }
+        },
+        %{
+          name: "px.click",
+          timestamp: at(2),
+          visitor_id: "v1",
+          session_id: "s1",
+          pathname: "/doctor",
+          props: %{"action" => "booking", "label" => "hero_booking"}
+        },
+        %{
+          name: "px.engagement",
+          timestamp: at(3),
+          session_id: "s1",
+          pathname: "/doctor",
+          props: %{"d" => 75, "ms" => 12_500}
+        },
+        %{
+          name: "px.engagement",
+          timestamp: at(4),
+          session_id: "s2",
+          pathname: "/doctor",
+          props: %{"d" => 100, "ms" => 7_500}
+        }
+      ])
+    end
+
+    test "returns the latest element inventory for each path" do
+      assert [row] = Interactions.inventory(@site, range())
+      assert row.path == "/doctor"
+      assert row.interactive == 4
+      assert row.buttons == 3
+      assert row.links == 1
+      assert row.actions == "booking,contact_whatsapp"
+    end
+
+    test "groups semantic clicks without requiring a developer label" do
+      assert [row] = Interactions.clicks(@site, range())
+
+      assert row == %{
+               action: "booking",
+               label: "hero_booking",
+               events: 1,
+               sessions: 1,
+               visitors: 1
+             }
+    end
+
+    test "summarises depth and active time" do
+      assert %{
+               events: 2,
+               sessions: 2,
+               average_depth: 87.5,
+               maximum_depth: 100,
+               engaged_ms: 20_000
+             } = Interactions.engagement(@site, range())
+    end
+
+    test "returns a bounded newest-first timeline" do
+      rows = Interactions.timeline(@site, range(), limit: 2)
+      assert Enum.map(rows, & &1.name) == ["px.engagement", "px.engagement"]
+      assert Enum.map(rows, & &1.at) == Enum.sort(Enum.map(rows, & &1.at), {:desc, DateTime})
     end
   end
 

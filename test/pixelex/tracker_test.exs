@@ -82,4 +82,25 @@ defmodule Pixelex.TrackerTest do
     assert built =~ "window.pixelex" or built =~ "pixelex="
     refute built =~ "/*", "comments should be stripped from the built file"
   end
+
+  test "auto discovery tracks safe interaction metadata, never field values or page text" do
+    source = File.read!(@source)
+
+    assert source =~ "MutationObserver"
+    assert source =~ "data-pixelex-ignore"
+    assert source =~ "data-track-label"
+    assert source =~ "px.inventory"
+    assert source =~ "px.click"
+    assert source =~ "input[type=submit]"
+
+    refute source =~ ".textContent"
+    refute source =~ ".innerText"
+    refute source =~ ~r/\.value\b/
+  end
+
+  test "automatic interactions can be disabled on the script element" do
+    source = File.read!(@source)
+    assert source =~ "data.interactions"
+    assert source =~ ~s(interactions !== "false")
+  end
 end

@@ -71,14 +71,39 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     def handle_event("detect", %{"paste" => text}, socket) do
       detected = Detect.detect(text)
 
+      results =
+        Enum.map(detected, fn {platform, credentials} ->
+          {platform, Destinations.put_credentials(socket.assigns.site_id, platform, credentials)}
+        end)
+
+      errors = for {platform, {:error, reason}} <- results, do: {platform, reason}
+
       {:noreply,
        socket
        |> assign(:paste, text)
        |> assign(:detected, detected)
-       |> assign(:values, merge_detected(socket.assigns.values, detected))}
+       |> assign(:values, merge_detected(socket.assigns.values, detected))
+       |> then(fn updated ->
+         cond do
+           detected == %{} ->
+             updated
+
+           errors == [] ->
+             updated |> note("Saved detected credentials automatically.") |> load()
+
+           true ->
+             message =
+               Enum.map_join(errors, "; ", fn {platform, reason} ->
+                 "#{platform}: #{explain(reason)}"
+               end)
+
+             note(updated, "Detected credentials, but could not save #{message}")
+         end
+       end)}
     end
 
-    def handle_event("save_platform", %{"platform" => platform} = params, socket) do
+    def handle_event(event, %{"platform" => platform} = params, socket)
+        when event in ["save_platform", "autosave_platform"] do
       site = socket.assigns.site_id
       attrs = Map.get(params, "credentials", %{})
 
@@ -86,9 +111,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         {:ok, _site} ->
           {:noreply,
            socket
-           |> note("Saved #{platform}.")
-           |> assign(:paste, "")
-           |> assign(:detected, %{})
+           |> note("Saved #{platform} automatically.")
            |> load()}
 
         {:error, reason} ->
@@ -119,7 +142,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end
     end
 
-    def handle_event("save_site", params, socket) do
+    def handle_event(event, params, socket) when event in ["save_site", "autosave_site"] do
       attrs = %{
         domain: blank_to_nil(params["domain"]),
         allowed_events: split_events(params["allowed_events"]),
@@ -128,7 +151,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       }
 
       case Sites.update(socket.assigns.site_id, attrs) do
-        {:ok, _site} -> {:noreply, socket |> note("Saved site settings.") |> load()}
+        {:ok, _site} -> {:noreply, socket |> note("Saved site settings automatically.") |> load()}
         {:error, reason} -> {:noreply, note(socket, "Could not save: #{explain(reason)}")}
       end
     end
@@ -308,7 +331,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           <h2>Paste anything</h2>
           <p class="px-hint">
             The snippet your ad platform gave you, or just the id. It gets read and dropped
-            into the right box below — nothing is saved until you press Save on a card.
+            into the right box below and saves valid credentials automatically.
           </p>
           <form id="px-paste" phx-change="detect">
             <textarea
@@ -340,7 +363,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
         <section class="px-card">
           <h2>Site</h2>
-          <form id="px-site" phx-submit="save_site">
+          <form id="px-site" phx-change="autosave_site">
             <label class="px-label">
               Domain
               <input
@@ -349,6 +372,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 value={@site && @site.domain}
                 placeholder="shop.example.com"
                 disabled={@config_defined?}
+                phx-debounce="600"
               />
             </label>
 
@@ -358,7 +382,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 What a browser is permitted to send. One per line or comma-separated.
                 <code>px.pageview</code> is always allowed.
               </span>
-              <textarea name="allowed_events" rows="4" disabled={@config_defined?}>{@site && Enum.join(@site.allowed_events, "\n")}</textarea>
+              <textarea name="allowed_events" rows="4" disabled={@config_defined?} phx-debounce="600">{@site && Enum.join(@site.allowed_events, "\n")}</textarea>
             </label>
 
             <label class="px-check">
@@ -383,10 +407,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
                 value={@site && @site.retention_days}
                 placeholder="90"
                 disabled={@config_defined?}
+                phx-debounce="600"
               />
             </label>
 
-            <button type="submit" class="px-button" disabled={@config_defined?}>Save</button>
+            <span class="px-hint">Changes save automatically.</span>
           </form>
         </section>
 
@@ -419,7 +444,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           </span>
         </h2>
 
-        <form id={"px-#{@module.name()}"} phx-submit="save_platform">
+        <form id={"px-#{@module.name()}"} phx-change="autosave_platform">
           <input type="hidden" name="platform" value={@module.name()} />
 
           <label :for={field <- @fields} class="px-label">
@@ -433,6 +458,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
               name={"credentials[#{field.key}]"}
               rows="3"
               disabled={@locked}
+              phx-debounce="600"
             >{@values[to_string(field.key)]}</textarea>
 
             <input
@@ -443,13 +469,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
               placeholder={field[:placeholder] || (field[:secret] && "leave blank to keep")}
               autocomplete="off"
               disabled={@locked}
+              phx-debounce="600"
             />
 
             <span :if={field[:hint]} class="px-hint">{field.hint}</span>
           </label>
 
           <div class="px-actions">
-            <button type="submit" class="px-button" disabled={@locked}>Save</button>
             <button
               :if={@status == :full}
               type="button"
@@ -468,6 +494,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             >
               Disconnect
             </button>
+            <span :if={not @locked} class="px-hint">Changes save automatically.</span>
           </div>
         </form>
 

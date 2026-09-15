@@ -8,7 +8,8 @@
  *
  *   <script defer src="/px/pixelex.js" data-site="shop"></script>
  *
- * Then any element with data-track is counted when clicked:
+ * Interactive elements are discovered and counted automatically. `data-track`
+ * gives an important action a stable product name:
  *
  *   <button data-track="book_click" data-track-doctor={@doctor.id}>
  *
@@ -27,6 +28,7 @@
   var site = data.site || location.hostname;
   var autoPageview = data.autoPageview !== "false";
   var trackEngagement = data.engagement !== "false";
+  var autoInteractions = data.interactions !== "false";
 
   /* ---------------------------------------------------------------- guards */
 
@@ -123,6 +125,8 @@
 
     send("px.pageview", screenProps(), url);
     resetEngagement();
+    lastInventory = null;
+    if (autoInteractions) window.setTimeout(inventory, 0);
   }
 
   function screenProps() {
@@ -183,13 +187,108 @@
     activeMs = 0;
   }
 
+  /* ------------------------------------------------------- page intelligence */
+
+  var interactiveSelector =
+    "a[href],button,input[type=submit],input[type=button],[role=button],summary";
+  var lastInventory = null;
+
+  function visible(el) {
+    if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return false;
+    if (el.closest("[data-pixelex-ignore]")) return false;
+    try {
+      var style = window.getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
+    } catch (_) { return true; }
+  }
+
+  function safeToken(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 80);
+  }
+
+  // Automatic capture never reads textContent or a form value. Human-readable
+  // names are opt-in developer metadata, not words borrowed from the page.
+  function label(el) {
+    return safeToken(el.getAttribute("data-track-label"));
+  }
+
+  function action(el) {
+    var explicit = safeToken(el.getAttribute("data-track-action"));
+    if (explicit) return explicit;
+
+    var href = el.getAttribute("href") || "";
+    if (/wa\.me|whatsapp/i.test(href)) return "contact_whatsapp";
+    if (/^tel:/i.test(href)) return "contact_phone";
+    if (/book|booking|appointment/i.test(href)) return "booking";
+    if (el.tagName === "SUMMARY") return "expand";
+    if (el.tagName === "BUTTON" || el.getAttribute("role") === "button" || el.type === "submit") return "submit";
+    if (el.tagName === "A") return "navigate";
+    return "interact";
+  }
+
+  function section(el) {
+    var parent = el.closest("[data-track-section],section,main,header,footer");
+    return parent && safeToken(parent.getAttribute("data-track-section") || parent.id);
+  }
+
+  function describe(el) {
+    var props = {
+      action: action(el),
+      element: el.tagName.toLowerCase(),
+      label: label(el) || null,
+      section: section(el) || null,
+      depth: scrollDepth(),
+      ms: activeMs
+    };
+
+    var href = el.getAttribute("href");
+    if (href) {
+      try {
+        var target = new URL(href, location.href);
+        props.target = target.origin === location.origin ? target.pathname : "external";
+      } catch (_) {}
+    }
+    return props;
+  }
+
+  function elements() {
+    try { return Array.prototype.filter.call(document.querySelectorAll(interactiveSelector), visible); }
+    catch (_) { return []; }
+  }
+
+  function inventory() {
+    if (!autoInteractions || off) return;
+    var found = elements();
+    var actions = [];
+    var buttons = 0;
+    var links = 0;
+
+    for (var i = 0; i < found.length; i++) {
+      var el = found[i];
+      var name = action(el);
+      if (actions.indexOf(name) < 0) actions.push(name);
+      if (el.tagName === "A") links++; else buttons++;
+    }
+
+    actions.sort();
+    var signature = location.pathname + "|" + found.length + "|" + buttons + "|" + actions.join(",");
+    if (signature === lastInventory) return;
+    lastInventory = signature;
+    send("px.inventory", {
+      interactive: found.length,
+      buttons: buttons,
+      links: links,
+      actions: actions.join(",").slice(0, 500)
+    });
+  }
+
   /* ---------------------------------------------------------------- clicks */
 
   var clickedAt = new WeakMap ? new WeakMap() : null;
 
   function onClick(event) {
-    var el = event.target && event.target.closest && event.target.closest("[data-track]");
-    if (!el) return;
+    var el = event.target && event.target.closest && event.target.closest(interactiveSelector);
+    if (!el || !visible(el)) return;
 
     // Mobile fires a synthetic click after touchend, and people double-tap a
     // button that feels slow. Neither is a second intention.
@@ -199,7 +298,7 @@
       clickedAt.set(el, now);
     }
 
-    var props = {};
+    var props = describe(el);
     for (var key in el.dataset) {
       if (key !== "track" && key.indexOf("track") === 0) {
         // data-track-doctor="123" -> {doctor: "123"}
@@ -207,7 +306,7 @@
       }
     }
 
-    send(el.dataset.track, props);
+    send(el.dataset.track || "px.click", props);
   }
 
   /* ------------------------------------------------------------ public api */
@@ -229,7 +328,7 @@
   if (!off) {
     // Capture phase: a handler further down that calls stopPropagation — modal
     // closers do — would otherwise silently stop the count.
-    document.addEventListener("click", onClick, true);
+    if (autoInteractions) document.addEventListener("click", onClick, true);
 
     // Phoenix LiveView: live_patch and live_navigate never touch the server's
     // request path, so this is the only client-side signal for them.
@@ -248,6 +347,14 @@
     }
 
     window.addEventListener("hashchange", function () { pageview(); });
+
+    if (autoInteractions && window.MutationObserver) {
+      var inventoryTimer = null;
+      new MutationObserver(function () {
+        window.clearTimeout(inventoryTimer);
+        inventoryTimer = window.setTimeout(inventory, 250);
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    }
 
     if (trackEngagement) {
       document.addEventListener("visibilitychange", function () {

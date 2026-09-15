@@ -53,7 +53,8 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
     assert html =~ "Paste anything"
   end
 
-  test "a pasted snippet fills the right field on the right card", %{conn: conn} do
+  @tag :integration
+  test "a pasted snippet fills and saves the right field on the right card", %{conn: conn} do
     {:ok, view, _html} = open(conn)
 
     html =
@@ -63,6 +64,8 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
 
     assert html =~ "1234567890123456"
     assert html =~ "Found:"
+    assert html =~ "Saved detected credentials automatically."
+    assert Destinations.credentials(@site)[:meta].pixel_id == "1234567890123456"
   end
 
   test "an unrecognised paste says nothing rather than guessing", %{conn: conn} do
@@ -88,7 +91,7 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
         }
       })
 
-    assert html =~ "Saved meta."
+    assert html =~ "Saved meta automatically."
     assert html =~ "browser + server, deduped"
     assert Destinations.credentials(@site)[:meta].pixel_id == "1234567890123456"
   end
@@ -160,8 +163,8 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
     {:ok, view, _html} = open(conn)
 
     view
-    |> element("form[phx-submit=save_site]")
-    |> render_submit(%{
+    |> element("form[phx-change=autosave_site]")
+    |> render_change(%{
       "domain" => "shop.test",
       "allowed_events" => "book_click\ncall_click, order_started",
       "retention_days" => "30"
@@ -172,6 +175,44 @@ defmodule Pixelex.Dashboard.SettingsLiveTest do
     assert site.allowed_events == ~w(book_click call_click order_started)
     assert site.retention_days == 30
     refute site.allow_any_event
+  end
+
+  @tag :integration
+  test "platform forms autosave and keep an existing blank secret", %{conn: conn} do
+    connect_meta("EAA-existing")
+    {:ok, view, _html} = open(conn)
+
+    html =
+      view
+      |> element("form#px-meta")
+      |> render_change(%{
+        "platform" => "meta",
+        "credentials" => %{
+          "pixel_id" => "9999999999999999",
+          "access_token" => "",
+          "test_event_code" => "TEST42"
+        }
+      })
+
+    assert html =~ "Saved meta automatically."
+    credentials = Destinations.credentials(@site)[:meta]
+    assert credentials.pixel_id == "9999999999999999"
+    assert credentials.access_token == "EAA-existing"
+    assert credentials.test_event_code == "TEST42"
+  end
+
+  @tag :integration
+  test "a config-defined site reports that detected credentials cannot be saved", %{conn: conn} do
+    Application.put_env(:pixelex, :sites, %{@site => [domain: "x.test"]})
+    {:ok, view, _html} = open(conn)
+
+    html =
+      view
+      |> element("form[phx-change=detect]")
+      |> render_change(%{"paste" => "fbq('init', '1234567890123456')"})
+
+    assert html =~ "Detected credentials, but could not save"
+    assert html =~ "config :pixelex, sites:"
   end
 
   test "a config-defined site is read-only and says why", %{conn: conn} do

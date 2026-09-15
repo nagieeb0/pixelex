@@ -9,7 +9,8 @@ Postgres.
 [![CI](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml/badge.svg)](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/pixelex.svg)](https://github.com/nagieeb0/pixelex/blob/main/LICENSE)
 
-> **0.3.0** — 356 tests, no compiler warnings, Dialyzer clean. Early;
+> **0.4.0** — interaction discovery, depth and engagement reporting, and
+> autosaving settings. Early;
 > the API may still move before 1.0.
 
 ```elixir
@@ -68,7 +69,7 @@ generates the migration and prints the wiring. Or by hand:
 ```elixir
 def deps do
   [
-    {:pixelex, "~> 0.1"},
+    {:pixelex, "~> 0.4"},
 
     # Optional but strongly recommended: referrer classification and
     # browser/OS/device parsing plus real bot filtering. Both Apache-2.0.
@@ -286,7 +287,8 @@ Reddit's published test vector.
 ## Setting up pixels without a deploy
 
 `pixelex_settings` mounts a screen where a tenant pastes the snippet their ad
-platform gave them and presses **Test**.
+platform gave them. Valid ids and every field edit save automatically; **Test**
+still verifies the server-side credential against the platform's live API.
 
 ```elixir
 scope "/admin" do
@@ -298,7 +300,7 @@ end
 
 Three things make it work rather than exist:
 
-**It reads the snippet.** The form does not ask a marketer whether their
+**It reads and saves the snippet.** The form does not ask a marketer whether their
 platform calls it a *pixel code*, a *measurement ID* or an *ad account ID*.
 Paste the whole `<script>` block and `Pixelex.Destinations.Detect` finds the id
 inside it and drops it in the right box on the right card. Meta, GA4, TikTok,
@@ -416,12 +418,48 @@ Optional. Page views are already counted server-side.
 <script defer src="/px/pixelex.js" data-site="shop"></script>
 ```
 
-1,458 bytes gzipped, served from your own origin. Adds clicks
-(`data-track="book_click"`), SPA and LiveView navigation, screen size, scroll
-depth and engagement time. Guards for localhost, `file://`, headless browsers,
-GPC and a local opt-out. Sends with `keepalive` and falls back to an image;
-fires on `visibilitychange` and `pagehide`, **never** `unload`, which
-disqualifies the page from the back-forward cache.
+About 2.3 KB gzipped, served from your own origin. It discovers visible links,
+buttons, submit controls, `role="button"` elements and expandable `summary`
+controls — including elements added later by LiveView — then emits:
+
+| event | meaning |
+|---|---|
+| `px.inventory` | how many interactive elements, buttons and links exist on each page, plus their inferred action types |
+| `px.click` | the inferred action (`booking`, `contact_whatsapp`, `contact_phone`, `submit`, `expand`, `navigate` or `interact`) |
+| `px.engagement` | active time and maximum scroll depth |
+| `px.pageview` | client navigation and browser enrichment |
+
+Those four library-owned names are accepted without copying them into every
+site's allowlist; invented `px.*` names are still rejected. The dashboard shows
+page inventory, grouped interactions, scroll depth, engaged time and the latest
+event timeline.
+
+Automatic capture deliberately never reads `textContent`, `innerText` or input
+values. For stable business vocabulary, annotate only what is useful:
+
+```heex
+<.link
+  navigate={~p"/book"}
+  data-track="booking_started"
+  data-track-action="booking"
+  data-track-label="hero_booking"
+  data-track-section="hero"
+>
+  Book now
+</.link>
+```
+
+`data-track` sends an explicit allowlisted event as before. The other
+attributes enrich the automatic `px.click`; `data-track-label` is optional and
+must be intentionally supplied by the host. Put `data-pixelex-ignore` on an
+element or ancestor to exclude it, or `data-interactions="false"` on the script
+tag to disable automatic interaction capture entirely.
+
+The tracker also handles SPA and LiveView navigation, screen size, scroll depth
+and engagement time. It guards localhost, `file://`, headless browsers, GPC and
+a local opt-out. It sends with `keepalive`, falls back to an image, and fires on
+`visibilitychange` and `pagehide`, **never** `unload`, which disqualifies a page
+from the back-forward cache.
 
 ## Telemetry
 

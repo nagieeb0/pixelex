@@ -1,7 +1,7 @@
 defmodule Pixelex.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.0"
   @source_url "https://github.com/nagieeb0/pixelex"
 
   def project do
@@ -121,6 +121,7 @@ defmodule Pixelex.MixProject do
         Queries: [
           Pixelex.Query,
           Pixelex.Query.Traffic,
+          Pixelex.Query.Interactions,
           Pixelex.Query.Funnel,
           Pixelex.Query.Retention
         ],

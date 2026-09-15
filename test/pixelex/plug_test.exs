@@ -195,6 +195,20 @@ defmodule Pixelex.PlugTest do
       assert event.render == :client
     end
 
+    test "accepts the tracker's closed event vocabulary without tenant boilerplate" do
+      for name <- Pixelex.Pipeline.browser_events() do
+        assert post(%{"s" => "shop.test", "n" => name}).status == 204
+      end
+
+      names = stored() |> Enum.map(& &1.name) |> Enum.sort()
+      assert names == Enum.sort(Pixelex.Pipeline.browser_events())
+    end
+
+    test "the reserved namespace is closed to invented event names" do
+      assert post(%{"s" => "shop.test", "n" => "px.secret"}).status == 204
+      assert stored() == []
+    end
+
     test "answers 204 identically for everything it drops" do
       cases = [
         {%{"s" => "shop.test", "n" => "not_in_allowlist"}, "unknown event name"},
