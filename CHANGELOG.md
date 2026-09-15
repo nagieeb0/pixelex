@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-09-15
+
+- Optional enrichment dependencies now compile without warnings when a host
+  deliberately omits them. No behaviour or migration change.
+
 ## 0.4.0 — 2026-09-15
 
 The browser tracker can now explain what a visitor could do, what they did and

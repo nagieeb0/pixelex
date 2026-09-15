@@ -9,7 +9,7 @@ Postgres.
 [![CI](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml/badge.svg)](https://github.com/nagieeb0/pixelex/actions/workflows/ci.yml)
 [![License](https://img.shields.io/hexpm/l/pixelex.svg)](https://github.com/nagieeb0/pixelex/blob/main/LICENSE)
 
-> **0.4.0** — interaction discovery, depth and engagement reporting, and
+> **0.4.1** — interaction discovery, depth and engagement reporting, and
 > autosaving settings. Early;
 > the API may still move before 1.0.
 

@@ -37,13 +37,6 @@ defmodule Pixelex.Enrich do
     uptimerobot gtmetrix semrush ahrefs mj12 dotbot petalbot bytespider
   )
 
-  # ua_inspector calls curl, wget, python-requests, Go-http-client and okhttp
-  # `type: "library"` rather than bots, because they are not crawlers — they
-  # are scripts. For a pageview count the distinction does not matter: neither
-  # is a person, and both inflate the same numbers. Verified against the real
-  # database; nothing in the docs says this.
-  @non_human_client_types ~w(library feed reader)
-
   @type device :: %{
           browser: String.t() | nil,
           os: String.t() | nil,
@@ -70,6 +63,11 @@ defmodule Pixelex.Enrich do
   def device(""), do: empty()
 
   if @ua_inspector? do
+    # ua_inspector calls curl, wget, python-requests, Go-http-client and okhttp
+    # `type: "library"` rather than bots. Declared only in the compiled branch
+    # that uses it, so hosts without the optional dependency stay warning-free.
+    @non_human_client_types ~w(library feed reader)
+
     def device(user_agent) when is_binary(user_agent) do
       case UAInspector.parse(user_agent) do
         %UAInspector.Result.Bot{} ->
@@ -166,19 +164,21 @@ defmodule Pixelex.Enrich do
 
   @spec warn_once() :: :ok
   def warn_once do
-    missing = @missing_deps
+    case @missing_deps do
+      [] ->
+        :ok
 
-    if missing != [] do
-      Logger.info("""
-      [pixelex] running with reduced enrichment. Missing: #{Enum.join(missing, ", ")}.
+      missing ->
+        Logger.info("""
+        [pixelex] running with reduced enrichment. Missing: #{Enum.join(missing, ", ")}.
 
-          {:ref_inspector, "~> 2.0"},
-          {:ua_inspector, "~> 3.0"}
+            {:ref_inspector, "~> 2.0"},
+            {:ua_inspector, "~> 3.0"}
 
-      Then `mix ref_inspector.download` and `mix ua_inspector.download` — the
-      databases are fetched, not bundled, and a release needs that step in its
-      build. Everything works without them; attribution is simply coarser.
-      """)
+        Then `mix ref_inspector.download` and `mix ua_inspector.download` — the
+        databases are fetched, not bundled, and a release needs that step in its
+        build. Everything works without them; attribution is simply coarser.
+        """)
     end
 
     :ok
