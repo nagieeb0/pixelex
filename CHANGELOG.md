@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2 — 2026-09-18
+
+### Fixed
+- TikTok now receives a booking. `schedule` mapped to `nil` there and nowhere
+  else, so an advertiser running bookings off TikTok got no conversion, no
+  signal and no optimisation target, while every other destination reported it.
+  It folds into `SubmitForm` — TikTok's standard lead event, already this file's
+  `lead`, the same folding Snapchat's `SIGN_UP` already does for `lead` and
+  `complete_registration`. `purchase` stays `CompletePayment`, so a booking and
+  an attendance remain two different events.
+
 ## 0.4.1 — 2026-09-15
 
 - Optional enrichment dependencies now compile without warnings when a host
