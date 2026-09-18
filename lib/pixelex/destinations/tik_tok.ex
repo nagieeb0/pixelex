@@ -40,9 +40,27 @@ defmodule Pixelex.Destinations.TikTok do
     complete_registration: "CompleteRegistration",
     subscribe: "Subscribe",
     contact: "Contact",
-    # TikTok has no booking or appointment event. Inventing one would create a
-    # conversion the advertiser cannot optimise toward.
-    schedule: nil
+    # **TikTok has no booking event, so a booking is a form submission.**
+    #
+    # This was `nil`, on the reasoning that TikTok's catalogue has nothing for an
+    # appointment and inventing one would create a conversion the advertiser
+    # cannot optimise toward. The first half is true. The second half is what
+    # `nil` actually costs: an advertiser running bookings off TikTok got
+    # **nothing at all** when one happened — no conversion, no signal, no
+    # optimisation target — while every other destination here reported it.
+    # That is not the advertiser being protected from a bad mapping, it is the
+    # advertiser being handed a dark channel.
+    #
+    # `SubmitForm` is TikTok's standard lead event and is optimisable. It is
+    # already this file's `lead`, so the mapping is verified rather than
+    # remembered — and folding two canonical events onto one platform event is
+    # what this library already does where a taxonomy is coarser than ours:
+    # Snapchat's `SIGN_UP` carries both `lead` and `complete_registration`.
+    #
+    # The distinction survives where it matters. `purchase` remains
+    # `CompletePayment`, so a funnel that books and then attends still reports
+    # two different events, which is the pair an advertiser optimises between.
+    schedule: "SubmitForm"
   }
 
   @impl true

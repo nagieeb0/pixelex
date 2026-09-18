@@ -572,8 +572,23 @@ defmodule Pixelex.DestinationsTest do
     end
 
     test "a platform with no equivalent says nil rather than inventing one" do
-      assert Destinations.dialects()[:schedule][:tiktok] == nil
       assert Destinations.dialects()[:contact][:snapchat] == nil
+    end
+
+    # This used to be `nil` for the stated reason that TikTok's catalogue has
+    # nothing for an appointment. True, and it meant an advertiser running
+    # bookings off TikTok was told nothing at all when one happened, while every
+    # other destination reported it. A dark channel is not a protection.
+    test "TikTok folds a booking into its lead event, as its taxonomy forces" do
+      assert Destinations.dialects()[:schedule][:tiktok] == "SubmitForm"
+      assert Destinations.dialects()[:lead][:tiktok] == "SubmitForm"
+    end
+
+    # And the distinction survives where an advertiser actually optimises: the
+    # booking and the attendance are still two different events.
+    test "but a booking and a payment stay apart on TikTok" do
+      refute Destinations.dialects()[:schedule][:tiktok] ==
+               Destinations.dialects()[:purchase][:tiktok]
     end
 
     test "X is deliberately not shipped" do
@@ -638,12 +653,27 @@ defmodule Pixelex.DestinationsTest do
       assert hd(tiktok.body["data"])["user"]["ttclid"] == "CLICK123"
     end
 
+    # The example used to be TikTok and `:schedule`, which is no longer one: a
+    # booking now folds into TikTok's `SubmitForm`, because sending nothing left
+    # an advertiser running bookings off TikTok with a dark channel. The rule
+    # this test is actually about is unchanged, so it moves to a platform where
+    # the gap is real — Snapchat has no contact event.
     test "an event a platform has no name for simply does not go there" do
-      capture(200, %{"code" => 0})
+      Application.put_env(:pixelex, :sites, %{
+        "quiet" => [
+          destinations: %{
+            "meta" => %{"pixel_id" => "PIX", "access_token" => "TOK"},
+            "snapchat" => %{"pixel_id" => "SNAP", "access_token" => "SK"}
+          }
+        ]
+      })
 
-      results = Destinations.dispatch("shop", :schedule, event_id: "appt:1")
+      Pixelex.Sites.reset()
+      capture(200, %{})
 
-      assert Keyword.keys(results) == [:meta], "TikTok has no schedule event"
+      results = Destinations.dispatch("quiet", :contact, event_id: "c:1")
+
+      assert Keyword.keys(results) == [:meta], "Snapchat has no contact event"
     end
 
     test "an unknown site reaches nothing" do
